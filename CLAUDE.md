@@ -51,15 +51,17 @@ execute and close a card.
   `/realtime/v1/*` (WebSocket passthrough). **Own routes:** `/webhooks/<provider>` (Asaas,
   Play RTDN — forwarded only; the function verifies the signature), `/health`
   (`{tenant, target, version}`), `OPTIONS *` (per-tenant CORS). **Blocks**
-  `GET /auth/v1/authorize?provider=google` with 410 — native sign-in is the only flow.
+  `GET /auth/v1/authorize?provider=google` with 410 — native sign-in is the only flow. The
+  whole promise, route by route and header by header, is `docs/contract.md` (card 01.5).
 - **Headers:** `Host` decides the tenant (consumed); `apikey` = the tenant's public key,
   swapped for the target's anon key (likewise `Bearer <tenant key>` before login);
   `Authorization: Bearer <user JWT>` passes untouched; `X-Fulcrum-Target` selects the target
   only when `CANARY=true` (consumed); `Prefer`, `Range`, `Accept-Profile` pass. On the way
   back `Content-Range` and the body pass with no cache; CORS and an informational
   `X-Fulcrum-Target` are added.
-- **Per-env vars:** `TENANT`, `TARGET=supabase|neon`, `CANARY`, `ALLOWED_ORIGINS`,
-  `BLOCK_OAUTH_REDIRECT`. **Secrets** via `wrangler secret put --env <tenant>`:
+- **Per-env vars:** `TENANT`, `TENANT_HOST`, `TARGET=supabase|neon`, `CANARY`,
+  `ALLOWED_ORIGINS`, `BLOCK_OAUTH_REDIRECT`. (`TENANT_HOST` was added by card 01.5: `Host`
+  is checked against it and a mismatch is a 404 — `docs/contract.md` §3.2.) **Secrets** via `wrangler secret put --env <tenant>`:
   `TENANT_PUBLIC_KEY`, `TARGET_SUPABASE_URL`, `TARGET_SUPABASE_ANON`, `TARGET_NEON_URL`,
   `TARGET_NEON_ANON`. Never the privileged key.
 - **The key an app carries is the tenant's**, opaque and public. When the target changes it
@@ -81,8 +83,9 @@ execute and close a card.
 2. **Own target:** a database/project of its own — never a schema in another product's
    database. Migrations and functions stay **in the app's repo**; Fulcrum has no SQL and no
    domain.
-3. **Env in `gateway/wrangler.toml`:** `TENANT`, `TARGET`, `CANARY`, `ALLOWED_ORIGINS`,
-   `BLOCK_OAUTH_REDIRECT`; secrets via `wrangler secret put`. Custom domain on Cloudflare.
+3. **Env in `gateway/wrangler.toml`:** `TENANT`, `TENANT_HOST`, `TARGET`, `CANARY`,
+   `ALLOWED_ORIGINS`, `BLOCK_OAUTH_REDIRECT`; secrets via `wrangler secret put`. Custom
+   domain on Cloudflare.
 4. **In the app:** `env.dart` → `https://api.<product>` + tenant key; `Supabase.initialize`
    and nothing more. Source gates: `no_supabase_outside_adapters_test`, `gateway_url_test`,
    `no_oauth_redirect_test` (when there is social login). Social login always through the
