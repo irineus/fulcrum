@@ -123,9 +123,10 @@ workflows from the repository's root `.github/workflows/`, so the two files live
 ## Conventions
 - **Commits:** conventional-commit style, **in English**. A commit that delivers a card of
   this board ends with the trailer `Backlog: <card>` where `<card>` is the board key
-  `<Fase>.<Ordem>` (`Backlog: 03.1`). When a commit here also delivers an item of the
-  Entrelares board, add that ID too (`Backlog: 03.4, T-63`) — `entrelares-flutter/tool/
-  notion_mirror.py` reads this repo's history for `F-`/`U-`/`T-`/`S-`/`L-` trailers.
+  `<Fase>.<Ordem>` (`Backlog: 03.1`). When a commit here also delivers an item of an app's
+  board, add that ID too (`Backlog: 03.4, T-64`). No board reads the trailer automatically
+  — the Entrelares mirror is being retired by its own T-63 — so the mirror item on the
+  app's board is written by that board's skill; the trailer keeps `git log` greppable.
 - **Branches:** `card/<fase>-<ordem>-<slug>` from `origin/main`; PR against `main`.
 - **Working agreement (inherited from the sibling projects):** analysis and gap questions
   BEFORE any code; **PR + merge only with Irineu's explicit OK — never automatic**; one
