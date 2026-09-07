@@ -1,0 +1,29 @@
+name: CI
+
+# Lint + test on every push and PR. Deploys are a separate workflow (card 03.2): CI never
+# touches Cloudflare. The suite includes the anti-domain gate (no .sql in the repo, no
+# product table name in gateway/src/, no privileged key anywhere in the gateway), so a
+# docs-only change still runs it — a stray .sql in docs/ is exactly what it exists for.
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  gateway:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: gateway
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: gateway/package-lock.json
+      - run: npm ci
+      - name: Lint (tsc + prettier)
+        run: npm run lint
+      - name: Unit tests + anti-domain gate
+        run: npm test

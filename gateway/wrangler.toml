@@ -1,0 +1,54 @@
+# Fulcrum gateway — one codebase, one deploy per tenant (Decisions §3).
+#
+# Public variables live here. Secrets go in through `wrangler secret put --env <tenant>`
+# and never into the repository: TENANT_PUBLIC_KEY, TARGET_SUPABASE_URL,
+# TARGET_SUPABASE_ANON, TARGET_NEON_URL, TARGET_NEON_ANON.
+# The privileged server key is not on that list and must never be (R2) — a unit test
+# greps for its name in this file and in src/.
+#
+# Custom domains, secrets and the deploy workflow are card 03.2. Until it lands this file
+# is configuration on paper: nothing here has been deployed.
+
+name = "fulcrum"
+main = "src/index.ts"
+compatibility_date = "2026-09-01"
+workers_dev = false
+
+[env.entrelares]
+routes = [{ pattern = "api.entrelares.app", custom_domain = true }]
+[env.entrelares.vars]
+TENANT = "entrelares"
+TARGET = "supabase"
+CANARY = "false"
+ALLOWED_ORIGINS = "https://web.entrelares.app,https://entrelares.app"
+BLOCK_OAUTH_REDIRECT = "true"
+
+[env.gestaoim360]
+routes = [{ pattern = "api.gestaoim360.com", custom_domain = true }]
+[env.gestaoim360.vars]
+TENANT = "gestaoim360"
+TARGET = "supabase"
+CANARY = "false"
+ALLOWED_ORIGINS = "https://app.gestaoim360.com"
+BLOCK_OAUTH_REDIRECT = "false"
+
+[env.desmalha]
+routes = [{ pattern = "api.desmalha.app", custom_domain = true }]
+[env.desmalha.vars]
+TENANT = "desmalha"
+TARGET = "supabase"
+CANARY = "true"
+# Native app only — no web origin.
+ALLOWED_ORIGINS = ""
+BLOCK_OAUTH_REDIRECT = "false"
+
+# The fourth env: what the apps' dev flavours point at (`api-dev.<product>`). Which dev
+# target it fronts (local `supabase start` or the dev project) and its hostname are
+# card 03.2's decisions; the values below only let `wrangler dev --env dev` start.
+[env.dev]
+[env.dev.vars]
+TENANT = "entrelares"
+TARGET = "supabase"
+CANARY = "true"
+ALLOWED_ORIGINS = "http://localhost:8080,http://127.0.0.1:8080"
+BLOCK_OAUTH_REDIRECT = "true"

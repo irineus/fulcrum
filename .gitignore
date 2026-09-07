@@ -1,0 +1,9 @@
+node_modules/
+.wrangler/
+.dev.vars
+.dev.vars.*
+*.log
+dist/
+.DS_Store
+# wrangler-generated types belong to the toolchain, not the repo
+worker-configuration.d.ts
