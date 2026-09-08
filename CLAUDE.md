@@ -149,7 +149,7 @@ cd gateway
 npm ci                 # Node ≥ 22 (the cloud image ships 22 on PATH)
 npm run lint           # tsc --noEmit + prettier --check
 npm test               # vitest: unit tests + the anti-domain gate
-npm run test:contract  # against TARGET_URL — empty until card 03.3
+npm run test:contract  # against FULCRUM_URL + TARGET_URL — empty until card 03.3
 npm run dev            # wrangler dev --env dev (local only; nothing is deployed from a session)
 ```
 CI (`.github/workflows/ci.yml`) runs `lint` + `test` on every push and PR. Deploys are the
