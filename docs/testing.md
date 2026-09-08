@@ -194,13 +194,20 @@ Latency is **not** measured here. The `+20 ms` p95 comparison is the Phase 03 ga
 
 | Matrix | `FULCRUM_URL` | `TARGET_URL` | Secrets? | Exists from |
 | --- | --- | --- | --- | --- |
-| `supabase-dev` | the `dev` deploy, `api-dev.<product>` | the dev Supabase project | yes | card 03.3 |
-| `neon-dev` | the same `dev` deploy, pinned with `X-Fulcrum-Target: neon` | the alternative target's URL | yes | card 05.4 |
-| `local` | `wrangler dev --env dev` on loopback | `supabase start` on loopback | no | card 03.3 |
+| `supabase-dev` | that tenant's dev deploy, `api-dev.<product>` | that tenant's dev Supabase project | yes | card 03.3 |
+| `neon-dev` | the same dev deploy, pinned with `X-Fulcrum-Target: neon` | the alternative target's URL | yes | card 05.4 |
+| `local` | `wrangler dev --env <tenant>-dev` on loopback | `supabase start` on loopback | no | card 03.3 |
 
-**`neon-dev` reuses the canary rather than adding a deploy.** The `dev` env already carries
-`CANARY=true`, so pinning the header is exactly the mechanism contract §4 describes, tested
-by using it. Until Phase 05 the matrix entry exists and reports **skipped**, with the
+**Every cell above is per tenant, which is why the matrices have a tenant axis at all.**
+Card 03.2 gives each tenant its own dev deploy (`[env.<tenant>-dev]` behind
+`api-dev.<product>`) fronting that tenant's own dev Supabase project, in that tenant's own
+Supabase account. There is no shared dev deploy and no shared dev target: a run for one
+tenant cannot be green because of another's data, and no single credential reaches two of
+them.
+
+**`neon-dev` reuses the canary rather than adding a deploy.** Every `<tenant>-dev` env
+carries `CANARY=true`, so pinning the header is exactly the mechanism contract §4 describes,
+tested by using it. Until Phase 05 the matrix entry exists and reports **skipped**, with the
 reason — never green, and never red. A matrix that is red for a year teaches everyone to
 ignore red.
 

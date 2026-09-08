@@ -170,8 +170,8 @@ in `wrangler.toml`: a request whose `Host` is not this tenant's is answered `404
 the target being touched. It is a cheap unit-testable assertion that "`Host` decides the
 tenant" (Decisions §3) is true in the code and not only in the DNS.
 
-*Decided in card 01.5:* `TENANT_HOST` is a new public var. Card 03.2 sets it for the four
-envs. Deriving the hostname from `TENANT` was rejected — `gestaoim360` does not spell
+*Decided in card 01.5:* `TENANT_HOST` is a new public var. Card 03.2 sets it for all six
+envs — prod and dev per tenant. Deriving the hostname from `TENANT` was rejected — `gestaoim360` does not spell
 `gestaoim360.com`.
 
 An unknown path is `unknown_route`, including a preflight for one: `OPTIONS` on a path the

@@ -42,9 +42,10 @@ CANARY = "true"
 ALLOWED_ORIGINS = ""
 BLOCK_OAUTH_REDIRECT = "false"
 
-# The fourth env: what the apps' dev flavours point at (`api-dev.<product>`). Which dev
-# target it fronts (local `supabase start` or the dev project) and its hostname are
-# card 03.2's decisions; the values below only let `wrangler dev --env dev` start.
+# Placeholder, and the last env of its kind. Decided 08/09/2026: each tenant gets its own
+# dev env, `[env.<tenant>-dev]` behind `api-dev.<product>`, fronting that tenant's own dev
+# Supabase project — this single `dev` is pinned to one tenant and so isolates nothing.
+# Card 03.2 replaces it with the three; the values below only let `wrangler dev` start.
 [env.dev]
 [env.dev.vars]
 TENANT = "entrelares"
