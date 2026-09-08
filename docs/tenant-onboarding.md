@@ -82,13 +82,20 @@ What the gateway needs from a target is exactly two values, and it wants nothing
 The privileged server key is not on that list and never will be (R2).
 
 A new tenant starts on `TARGET=supabase`. `TARGET=neon` exists from Phase 05 and is not
-where a product is born. Two constraints worth knowing before creating the project:
+where a product is born. Two projects, not one: **prod and dev**, because the contract
+suite's `supabase-dev` matrix runs against a hosted dev target (`docs/testing.md` §4) and
+`api-dev.<product>` has to front something.
 
-- Supabase allows **2 free projects per account**, not per org (Decisions §4) — a new
-  tenant may have to join the Pro org or use a local `supabase start` for dev;
+Three constraints worth knowing before creating them:
+
+- Supabase allows **2 free projects per account**, not per org. Two projects is exactly one
+  product's prod and dev — so **a tenant gets its own Supabase account**, and the free
+  allowance is the unit of isolation rather than a limit to work around (Decisions §4).
+- **Own account is also the escape hatch.** Scaling or paying for one product must not
+  touch another's billing or fate; that is the same reasoning as R1, applied to the
+  provider account instead of the consent screen.
 - the Free plan has **no backup**, so a tenant that handles anything worth keeping goes to
-  production only with step 7 running (card 04.2, and card 04.3 for the same rule applied
-  to the tenants of today).
+  production only with step 7 running (card 04.2).
 
 ## 3. Env in `gateway/wrangler.toml`, and its secrets
 
@@ -234,9 +241,12 @@ the card that fills it — so this table is also the inventory of what is still 
 | **1** hostname (dev) | `api-dev.entrelares.app` | `api-dev.gestaoim360.com` | `api-dev.desmalha.app` |
 | **1** DNS + custom domain | — (03.2) | — (03.2) | — (03.2) |
 | **1** Google Cloud project | — (02.1, 02.2) | not applicable — no social login | not applicable — OTP only |
-| **2** target | Supabase prod (Pro org) | Supabase prod (Pro org) | Supabase prod (Free org) |
+| **2** Supabase account | its own | its own | its own |
+| **2** target (prod) | Supabase Free | Supabase Free | Supabase Free |
+| **2** target (dev) | Supabase Free | Supabase Free (`sa-east-1`) | Supabase Free |
 | **2** migrations/functions live in | `entrelares-flutter` | `gestao-im360` | `desmalha` |
 | **3** `[env.<tenant>]` in `wrangler.toml` | `entrelares` ✓ | `gestaoim360` ✓ | `desmalha` ✓ |
+| **3** `[env.<tenant>-dev]` | — (03.2 · see G) | — (03.2 · see G) | — (03.2 · see G) |
 | **3** `TENANT_HOST` | — (03.2 · see A below) | — (03.2 · see A) | — (03.2 · see A) |
 | **3** `ALLOWED_ORIGINS` | `https://web.entrelares.app,https://entrelares.app` | `https://app.gestaoim360.com` | *empty* — native only (see C) |
 | **3** `BLOCK_OAUTH_REDIRECT` | `true` | `false` | `false` |
@@ -284,5 +294,20 @@ lines Fulcrum owns are the env block of step 3 and two matrix rows (steps 5 and 
 is the measurable form of card 07.3's gate: a new app is onboarded without touching
 `gateway/src/`.
 
-Source: Decisions §5; `docs/contract.md` §2.1, §3.2, §3.5, §7; `docs/testing.md` §4.2, §7;
-`gateway/wrangler.toml`; architecture document §05.
+**G. One Supabase account per tenant, and the dev half is not optional.** The three tenants
+of today each own an account holding two Free projects, prod and dev — six projects, zero
+cost, and each product's billing isolated from the others'. Two consequences this repository
+has to carry:
+
+- **Step 3 produces two envs, not one:** `[env.<tenant>]` and `[env.<tenant>-dev]`, the
+  second fronting that tenant's dev project at `api-dev.<product>`. The single shared
+  `[env.dev]` in `wrangler.toml` today is pinned to `TENANT = "entrelares"` and isolates
+  nothing — card 03.2 replaces it with one per tenant.
+- **Credentials are per account, never shared.** Every workflow that reaches a target — the
+  contract matrices (`docs/testing.md` §3.3) and the backup matrix (step 7) — needs its own
+  set per tenant, because there is no single login that sees all six projects. The
+  per-tenant secret naming both already use is what makes that work; nothing here assumes
+  one account, and nothing should start to.
+
+Source: Decisions §4 and §5; `docs/contract.md` §2.1, §3.2, §3.5, §7; `docs/testing.md`
+§3.3, §4.2, §7; `gateway/wrangler.toml`; architecture document §05.

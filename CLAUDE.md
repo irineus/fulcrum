@@ -42,11 +42,15 @@ loses to them when they diverge. Use the skill `.claude/skills/next-card/SKILL.m
 execute and close a card.
 
 ## Stack and hosting (Decisions §3)
-- **Gateway:** Cloudflare Worker, TypeScript, **one codebase and three deploys** —
-  `wrangler` envs `entrelares`, `gestaoim360`, `desmalha`, plus `dev` — behind custom domains
-  `api.entrelares.app`, `api.gestaoim360.com`, `api.desmalha.app`. Workers Free (100k
+- **Gateway:** Cloudflare Worker, TypeScript, **one codebase, two deploys per tenant** —
+  `wrangler` envs `entrelares`, `gestaoim360`, `desmalha` behind `api.<product>`, and
+  `<tenant>-dev` behind `api-dev.<product>` (card 03.2 replaces today's single shared
+  `[env.dev]`, which is pinned to one tenant and isolates nothing). Workers Free (100k
   req/day **per account**; above that a flat US$ 5 — the only fixed cost Fulcrum can ever
   grow).
+- **Deploy triggers (03.2):** a push to a card branch deploys the **dev** envs; a merge into
+  `main` deploys **prod**, behind an approval. One long branch (`main`) — dev is ahead of
+  prod by the trigger, not by a second branch to keep in sync.
 - **Routes forwarded:** `/auth/v1/*`, `/rest/v1/*`, `/functions/v1/*`, `/storage/v1/*`,
   `/realtime/v1/*` (WebSocket passthrough). **Own routes:** `/webhooks/<provider>` (Asaas,
   Play RTDN — forwarded only; the function verifies the signature), `/health`
@@ -84,9 +88,11 @@ runs once per client; every other step once per tenant.
 1. **Own identity (R1):** hostnames `api.<product>` **and** `api-dev.<product>`, reserved
    together; its own Google Cloud project if it has social login, verified domain, policy
    and terms published.
-2. **Own target:** a database/project of its own — never a schema in another product's
-   database. Migrations and functions stay **in the app's repo**; Fulcrum has no SQL and no
-   domain.
+2. **Own target:** its **own Supabase account**, holding two Free projects — prod and dev.
+   Two per account is exactly one product, so the free allowance is the unit of isolation,
+   and paying for or scaling one product never touches another's billing (R1 applied to the
+   provider account). Never a schema in another product's database. Migrations and functions
+   stay **in the app's repo**; Fulcrum has no SQL and no domain.
 3. **Env in `gateway/wrangler.toml`:** `TENANT`, `TENANT_HOST`, `TARGET`, `CANARY`,
    `ALLOWED_ORIGINS`, `BLOCK_OAUTH_REDIRECT`; secrets via `wrangler secret put`. Custom
    domain on Cloudflare (`custom_domain = true` creates the DNS record — do not hand-create
