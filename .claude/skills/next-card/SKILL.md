@@ -104,6 +104,10 @@ ask Irineu to rename in the UI — never skip silently.
 ## Git cycle — merge only with Irineu's explicit OK
 1. Commit in English, conventional style, trailer **`Backlog: <card key>`** (plus any
    Entrelares ID the commit also delivers — the Entrelares mirror reads this repo for them).
+   `Backlog:` goes in the **last block**, no blank line before `Co-Authored-By`.
+   `.githooks/commit-msg` repairs it if not (run `bash tool/setup_env.sh` once per session
+   so it is installed); confirm before pushing with
+   `git log -1 --format='%(trailers:key=Backlog,valueonly)'` — empty means broken.
 2. `git push -u origin <branch>`.
 3. **Ask Irineu (AskUserQuestion) before opening the PR and before merging** — never
    automatic. The PR body lists the card, the rule(s) honoured and every `Portão` line with

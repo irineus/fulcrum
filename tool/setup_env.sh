@@ -21,6 +21,14 @@ if ! command -v node >/dev/null || [ "$(node -p 'process.versions.node.split("."
 fi
 node --version && npm --version
 
+log "git hooks"
+# `.git/hooks/` is not versioned, so the repo keeps its hooks in `.githooks/` and points
+# git at them. The commit-msg hook keeps `Backlog: <card>` a real git trailer — the board's
+# convention has been broken twice, silently, and reading carefully is not what catches it.
+git -C "$REPO_ROOT" config core.hooksPath .githooks
+chmod +x "$REPO_ROOT"/.githooks/* 2>/dev/null || true
+echo "core.hooksPath = $(git -C "$REPO_ROOT" config core.hooksPath)"
+
 log "gateway dependencies"
 cd "$REPO_ROOT/gateway"
 if [ -f package-lock.json ]; then npm ci; else npm install; fi

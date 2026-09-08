@@ -138,6 +138,7 @@ backup/                  scripts the backup workflows call               (04.2)
 packages/fulcrum_client/ optional pure-Dart package                       (06.1)
 docs/                    contract.md (01.5) · tenant-onboarding.md (01.6) · testing.md (01.7) · runbook.md (04.4, 08.2)
 .github/workflows/       ci.yml (01.4) · deploy (03.2) · pg_dump_r2.yml + restore_check.yml (04.2)
+.githooks/commit-msg     keeps `Backlog:` a real trailer; installed by tool/setup_env.sh
 ```
 **One divergence from the plan, recorded here on purpose:** the architecture document and
 card 01.4 place the backup workflows under `backup/.github/workflows/`. GitHub only runs
@@ -151,6 +152,15 @@ workflows from the repository's root `.github/workflows/`, so the two files live
   board, add that ID too (`Backlog: 03.4, T-64`). No board reads the trailer automatically
   — the Entrelares mirror is being retired by its own T-63 — so the mirror item on the
   app's board is written by that board's skill; the trailer keeps `git log` greppable.
+  **`Backlog:` must sit in the LAST block of the message, with no blank line before
+  `Co-Authored-By`** — `%(trailers:...)` reads only the final paragraph, and "the message
+  ends with the trailer" plus "the message ends with the attribution" resolves into two
+  blocks if nobody says which. `.githooks/commit-msg` repairs it and prints what it did;
+  `bash tool/setup_env.sh` installs it (`core.hooksPath`). The hook cannot see the
+  **squash-merge** message — that one goes through the GitHub API — so verify after
+  merging: `git log -1 --format='%(trailers:key=Backlog,valueonly)'` must print the card
+  key. It has broken twice: `c5b8050` (leaked tool-call tags landed after the line) and
+  card 03.1 pre-amend (the blank line).
 - **Branches:** `card/<fase>-<ordem>-<slug>` from `origin/main`; PR against `main`.
 - **Working agreement (inherited from the sibling projects):** analysis and gap questions
   BEFORE any code; **PR + merge only with Irineu's explicit OK — never automatic**; one
