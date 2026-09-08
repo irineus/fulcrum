@@ -1,23 +1,27 @@
-# Fulcrum gateway — one codebase, one deploy per tenant (Decisions §3).
+# Fulcrum gateway — one codebase, six deploys: production and dev for each of the three
+# tenants (Decisions §3). The env name carries the flavour; `TENANT` carries the identity.
 #
-# Public variables live here. Secrets go in through `wrangler secret put --env <tenant>`
-# and never into the repository: TENANT_PUBLIC_KEY, TARGET_SUPABASE_URL,
-# TARGET_SUPABASE_ANON, TARGET_NEON_URL, TARGET_NEON_ANON.
-# The privileged server key is not on that list and must never be (R2) — a unit test
-# greps for its name in this file and in src/.
+# Public variables live here. Secrets go in through `wrangler secret put --env <env>` and
+# never into the repository: TENANT_PUBLIC_KEY, TARGET_SUPABASE_URL, TARGET_SUPABASE_ANON,
+# TARGET_NEON_URL, TARGET_NEON_ANON. Six sets, one per env — each tenant owns its Supabase
+# account and there is no single login that sees all six projects (Decisions §4).
+# The privileged server key is not on that list and must never be (R2) — a unit test greps
+# for its name in this file and in src/.
 #
-# Custom domains, secrets and the deploy workflow are card 03.2. Until it lands this file
-# is configuration on paper: nothing here has been deployed.
+# `TENANT_HOST` is the hostname each deploy serves; `Host` is checked against it and a
+# mismatch is 404 unknown_tenant (docs/contract.md §3.2). `test/unit/config.test.ts` checks
+# every env here against its route, because a `TENANT_HOST` that disagrees with the custom
+# domain is a deploy that answers 404 to its own hostname.
 #
-# TENANT_HOST is the hostname each deploy serves; `Host` is checked against it and a
-# mismatch is 404 unknown_tenant (docs/contract.md §3.2). Card 01.6 split it in halves —
-# the field and the check in 03.1, the six envs in 03.2 — and 03.1 fills the four envs
-# that exist today so `npm run dev` is not left answering 404 in between.
+# `custom_domain = true` is what creates the DNS record. Creating a proxied record by hand
+# first makes the deploy fail (docs/tenant-onboarding.md §1).
 
 name = "fulcrum"
 main = "src/index.ts"
 compatibility_date = "2026-09-01"
 workers_dev = false
+
+# ─────────────────────────────── production ───────────────────────────────
 
 [env.entrelares]
 routes = [{ pattern = "api.entrelares.app", custom_domain = true }]
@@ -50,18 +54,48 @@ CANARY = "true"
 ALLOWED_ORIGINS = ""
 BLOCK_OAUTH_REDIRECT = "false"
 
-# Placeholder, and the last env of its kind. Decided 08/09/2026: each tenant gets its own
-# dev env, `[env.<tenant>-dev]` behind `api-dev.<product>`, fronting that tenant's own dev
-# Supabase project — this single `dev` is pinned to one tenant and so isolates nothing.
-# Card 03.2 replaces it with the three; the values below only let `wrangler dev` start.
-[env.dev]
-[env.dev.vars]
+# ──────────────────────────────────── dev ─────────────────────────────────
+#
+# One dev env per tenant, fronting that tenant's own dev Supabase project. `TENANT` is the
+# product, not the flavour: the `supabase-dev` matrix of the contract suite asserts the
+# tenant an app will meet in production, so a dev deploy answering `tenant: "entrelares"`
+# is the point — the hostname it was dialled on and `version` are what tell the two apart.
+#
+# `CANARY = "true"` in all three: `X-Fulcrum-Target` is how a target switch is rehearsed
+# (Decisions §3), and dev is where rehearsing belongs.
+#
+# `ALLOWED_ORIGINS` is loopback only (decided 08/09/2026). A dev gateway exists to be
+# called by a web client running on the developer's machine; naming a hosted `web-dev.*`
+# that does not exist would be a dead line, and repeating the production origins would let
+# a production build talk to a dev target — the mixture per-tenant dev envs exist to end.
+
+[env.entrelares-dev]
+routes = [{ pattern = "api-dev.entrelares.app", custom_domain = true }]
+[env.entrelares-dev.vars]
 TENANT = "entrelares"
-# `wrangler dev` serves on localhost, so this is the Host the Worker actually receives —
-# with a real hostname here every local request would answer 404 unknown_tenant. The three
-# `[env.<tenant>-dev]` envs of card 03.2 carry `api-dev.<product>` instead.
-TENANT_HOST = "localhost:8787"
+TENANT_HOST = "api-dev.entrelares.app"
 TARGET = "supabase"
 CANARY = "true"
 ALLOWED_ORIGINS = "http://localhost:8080,http://127.0.0.1:8080"
 BLOCK_OAUTH_REDIRECT = "true"
+
+[env.gestaoim360-dev]
+routes = [{ pattern = "api-dev.gestaoim360.com", custom_domain = true }]
+[env.gestaoim360-dev.vars]
+TENANT = "gestaoim360"
+TENANT_HOST = "api-dev.gestaoim360.com"
+TARGET = "supabase"
+CANARY = "true"
+ALLOWED_ORIGINS = "http://localhost:8080,http://127.0.0.1:8080"
+BLOCK_OAUTH_REDIRECT = "false"
+
+[env.desmalha-dev]
+routes = [{ pattern = "api-dev.desmalha.app", custom_domain = true }]
+[env.desmalha-dev.vars]
+TENANT = "desmalha"
+TENANT_HOST = "api-dev.desmalha.app"
+TARGET = "supabase"
+CANARY = "true"
+# Native app only — no web origin, in dev either.
+ALLOWED_ORIGINS = ""
+BLOCK_OAUTH_REDIRECT = "false"
