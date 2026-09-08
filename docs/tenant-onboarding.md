@@ -1,17 +1,288 @@
 # Tenant onboarding — how an app joins Fulcrum
 
-> **Not written yet — owned by card 01.6.** The seven steps are Decisions §5 (mirrored in
-> `CLAUDE.md`); this document turns each one into the exact command or file, and is
-> validated dry against the three tenants of today. A new app is born behind Fulcrum.
+Seven steps turn a product into a tenant. They are Decisions §5; this document turns each
+one into the exact file, command or console page, and ends with the four proofs that say
+the tenant is actually onboarded and not merely half-wired.
 
-| # | Step | Where it lands |
-|---|---|---|
-| 1 | Own identity (R1): `api.<product>`, Google Cloud project, verified domain, legal pages | Cloudflare DNS · Google Cloud console · the product's site |
-| 2 | Own target: a database/project of its own; migrations and functions stay in the app's repo | the app's repo |
-| 3 | `[env.<tenant>]` in `gateway/wrangler.toml` + `wrangler secret put --env <tenant>` | this repo · Cloudflare |
-| 4 | `env.dart` → gateway + tenant key; gates `no_supabase_outside_adapters_test`, `gateway_url_test`, `no_oauth_redirect_test` | the app's repo |
-| 5 | The tenant joins the contract-suite matrix with its own test user | `gateway/test/contract/` · CI |
-| 6 | A card on this board (`Repo` = the app) + a mirror item on the app's own board, created by that board's skill | Notion |
-| 7 | The tenant joins the `pg_dump` backup matrix | `.github/workflows/pg_dump_r2.yml` |
+It is written for two readers: whoever onboards a **new** app (card 07.3 times that run and
+expects less than a day), and whoever executes cards 03.2–03.4.x for the **three tenants of
+today** — which is why §9 validates every step dry against those three and names the card
+that owns each cell still empty.
 
-Proof that it fits in a day: card 07.3.
+**Where the truth lives.** The Notion page *Fulcrum — Decisões vigentes* wins over this
+file on any conflict; `docs/contract.md` owns what the gateway promises and this file never
+restates a promise, it points at the section. `docs/testing.md` owns the suite.
+
+---
+
+## 0. What a tenant is, before anything is configured
+
+A **tenant is a product, not an app.** It is one hostname, one target, one tenant key —
+and any number of clients that speak to it. Entrelares is one tenant with two clients (the
+Flutter app and the operator console); both carry the same `api.entrelares.app` and the
+same tenant key. Step 4 runs once per **client**; every other step runs once per **tenant**.
+
+Five things make a tenant, and nothing else does:
+
+| | The thing | Lives in |
+| --- | --- | --- |
+| 1 | a hostname `api.<product>` | Cloudflare DNS |
+| 2 | a target of its own (database + auth + storage) | the tenant's own provider account |
+| 3 | an env in `gateway/wrangler.toml` plus its secrets | this repository · Cloudflare |
+| 4 | a tenant key the clients carry | the app's config file |
+| 5 | a row in the contract matrix and in the backup matrix | this repository's workflows |
+
+If a candidate tenant cannot have its own database, it is not a tenant — it is a second
+client of an existing one (Decisions §5, step 2). That distinction is the whole reason the
+gateway carries no product knowledge (R1).
+
+---
+
+## 1. Own identity (R1)
+
+**Hostnames.** Two per tenant: `api.<product>` for production and `api-dev.<product>` for
+the dev flavour. Reserve both now even if dev lands later — card 03.4 already promises the
+dev hostname, and a hostname decided twice is a hostname changed once too often.
+
+The zone must sit on the **same Cloudflare account as the Worker**. Do not hand-create the
+DNS record: `custom_domain = true` in `wrangler.toml` (step 3) makes wrangler create and
+own it at deploy time, and a pre-existing proxied record on the same name makes that deploy
+fail.
+
+**Google Cloud (only if the product has social sign-in).** Its own project, its own consent
+screen — never another product's. That sharing is exactly the bug Fulcrum exists to fix
+(R1, Decisions §2): a shared consent screen shows the wrong name on Google's sheet.
+
+- consent screen **published**, not `testing`, with the product's name, a 120×120 logo and
+  a support e-mail;
+- the product's domain verified in Search Console, privacy and terms pages live;
+- client IDs: Web, Android prod (**both** SHA-1s — upload key *and* Play App Signing key)
+  and Android dev; the Web ID goes into *Authorized Client IDs* of the Google provider in
+  the target's GoTrue, and is the `serverClientId` the app passes.
+
+Cards 02.1 and 02.2 are this step done for Entrelares, screen by screen; a new tenant with
+social login repeats them.
+
+**Legal pages** are the product's, on the product's domain. Fulcrum publishes nothing that
+an end user reads — the name never reaches one (Decisions §1).
+
+## 2. Own target
+
+A database/project **of its own** — never a schema inside another product's database. The
+migrations, the functions and the business rules live in **the app's own repository**; this
+repository holds no `.sql` and the anti-domain gate fails the build if one appears
+(`gateway/test/unit/domain_gate.test.ts`, R5).
+
+What the gateway needs from a target is exactly two values, and it wants nothing else:
+
+- an **https** base URL — `hostOf()` in `gateway/src/targets/supabase.ts` refuses any other
+  scheme;
+- the target's **anon key**, the one the gateway swaps in (contract §2.1).
+
+The privileged server key is not on that list and never will be (R2).
+
+A new tenant starts on `TARGET=supabase`. `TARGET=neon` exists from Phase 05 and is not
+where a product is born. Two constraints worth knowing before creating the project:
+
+- Supabase allows **2 free projects per account**, not per org (Decisions §4) — a new
+  tenant may have to join the Pro org or use a local `supabase start` for dev;
+- the Free plan has **no backup**, so a tenant that handles anything worth keeping goes to
+  production only with step 7 running (card 04.2, and card 04.3 for the same rule applied
+  to the tenants of today).
+
+## 3. Env in `gateway/wrangler.toml`, and its secrets
+
+The public half is a block in the file, reviewed like code:
+
+```toml
+[env.<tenant>]
+routes = [{ pattern = "api.<product>", custom_domain = true }]
+[env.<tenant>.vars]
+TENANT = "<tenant>"
+TENANT_HOST = "api.<product>"          # Host is checked against this — contract §3.2
+TARGET = "supabase"
+CANARY = "false"                       # "true" only while a target switch is being tested
+ALLOWED_ORIGINS = "https://app.<product>"   # empty means NO web client, not "allow all"
+BLOCK_OAUTH_REDIRECT = "true"          # "true" for a product with Google sign-in
+```
+
+`<tenant>` is the env name: lower-case, no dots, and the same string everywhere (the
+contract secrets of step 5 are this name upper-cased). It is not the hostname —
+`gestaoim360` does not spell `gestaoim360.com`, which is why `TENANT_HOST` exists as a
+variable of its own (contract §3.2).
+
+The secret half never enters the file:
+
+```bash
+wrangler secret put TENANT_PUBLIC_KEY    --env <tenant>
+wrangler secret put TARGET_SUPABASE_URL  --env <tenant>
+wrangler secret put TARGET_SUPABASE_ANON --env <tenant>
+# TARGET_NEON_URL / TARGET_NEON_ANON only from Phase 05.
+```
+
+**Never from a session.** `wrangler deploy` and `wrangler secret put` are denied in
+`.claude/settings.json`; a person runs them, or the deploy workflow does (card 03.2).
+
+**The tenant key is generated, not borrowed.** `TENANT_PUBLIC_KEY` is an opaque public
+string the clients ship — `openssl rand -hex 32` is enough. It must **not** be any target's
+anon key, and that is the point: it is what stays the same when the target changes, so
+switching backends costs a variable and not an app release (Decisions §3). Reusing the
+anon key would silently couple the two and only reveal it on the day of the switch.
+
+Which env the dev hostname maps to — one shared `dev` env or one per tenant — is **card
+03.2's decision**; this step only reserves the name from §1.
+
+## 4. In the app — once per client
+
+The client's config file gets two values and the initialisation loses everything else:
+
+```dart
+const gatewayUrl = 'https://api.<product>';   // 'https://api-dev.<product>' on the dev flavour
+const tenantKey  = '<TENANT_PUBLIC_KEY>';     // public: it ships in the binary
+
+await Supabase.initialize(url: gatewayUrl, anonKey: tenantKey);
+```
+
+The file is `lib/env.dart` in the Entrelares app, the Entrelares console and Desmalha, and
+`Ambiente` in Gestão IM360 (cards 03.4, 03.4.2, 03.4.3, 03.4.4). **No adapter changes.** If
+a query, a repository or a screen had to change to point at the gateway, the port leaked —
+fix the port, not the app (Decisions §6, the Phase 05 gate).
+
+Three source gates, specified here and owned by the app's repository (`docs/testing.md` §7):
+
+| Gate | Asserts | Expected allow-list |
+| --- | --- | --- |
+| `gateway_url_test` | production never points at `*.supabase.co` | — |
+| `no_supabase_outside_adapters_test` | the client is imported only by files on the list | the smallest list that is true today |
+| `no_oauth_redirect_test` | `signInWithOAuth` appears nowhere in `lib/` | only where there is social login |
+
+Social sign-in is always the native flow (`signInWithIdToken`); the browser redirect is
+answered `410` by the gateway when `BLOCK_OAUTH_REDIRECT=true` (contract §3.4).
+
+**The order is mandatory: gateway first, app second** (contract §7). An app never points at
+a hostname that does not answer yet — which is why `gateway_url_test` lands in the same PR
+as the new URL and not before it.
+
+## 5. The contract matrix
+
+From `docs/testing.md` §4.2, in full:
+
+1. Create users **A and B** in the tenant's dev target, with data on both sides of whatever
+   RLS separates them. Two, never one: one user cannot prove isolation.
+2. Add the six secrets, `<TENANT>` being the env name of step 3 upper-cased:
+
+   ```
+   FULCRUM_CONTRACT_<TENANT>_TENANT_KEY      FULCRUM_CONTRACT_<TENANT>_ANON_KEY
+   FULCRUM_CONTRACT_<TENANT>_USER_A_EMAIL    FULCRUM_CONTRACT_<TENANT>_USER_A_PASSWORD
+   FULCRUM_CONTRACT_<TENANT>_USER_B_EMAIL    FULCRUM_CONTRACT_<TENANT>_USER_B_PASSWORD
+   ```
+
+   Dev targets only — no production credential is a CI secret.
+3. Add the tenant to the matrix's tenant axis in the workflow.
+4. Run it once by `workflow_dispatch` and read the result.
+
+**No test file changes.** If onboarding a tenant required editing an assertion, the
+assertion was tenant-specific and should not have been.
+
+## 6. Board
+
+A card on **Fulcrum — Roadmap de Construção** with `Repo` = the app and a written `Portão`,
+plus — on the **app's own board** — a mirror item for the app's half, created at execution
+time by that board's skill. Each board keeps its own ID and phase convention; no board reads
+the `Backlog:` trailer automatically.
+
+| Repo | Board skill that writes the mirror item |
+| --- | --- |
+| `entrelares-flutter`, `entrelares-console` | `next-item` |
+| `gestao-im360` | `proxima-tarefa` |
+| `desmalha` | `notion-proxima-tarefa` |
+| `fulcrum` | `next-card` — this board only, no mirror |
+
+## 7. Backup
+
+The tenant joins the `pg_dump` matrix in `.github/workflows/pg_dump_r2.yml` and the monthly
+restore check in `restore_check.yml` (card 04.2; the scripts they call live in `backup/`).
+Daily dump to a dedicated R2 bucket, 30 days of retention, one prefix per tenant. This is
+what replaces the backup the Supabase Free plan does not have, and it covers either target.
+
+---
+
+## 8. Done — the four proofs
+
+A tenant is onboarded when all four answer, and not before. They are what card 07.3 times.
+
+| # | Proof | How it is read |
+| --- | --- | --- |
+| 1 | the gateway answers on the new hostname | `curl -s https://api.<product>/health` returns `{"tenant","target","version"}` with the right tenant |
+| 2 | the contract matrix is green for this tenant | the `workflow_dispatch` run of step 5.4 |
+| 3 | production reaches the target through the gateway | the app's `gateway_url_test` green, and a real sign-in plus one read on the shipped build |
+| 4 | the first backup exists | the tenant's prefix present in the R2 bucket after one nightly run |
+
+Three of the four are machine-checked. Proof 3 is the one that needs a person, and it is
+deliberately last: it is the only step that publishes an app.
+
+---
+
+## 9. Dry validation against the three tenants of today
+
+Every step above, with the concrete value each of the three carries. An empty cell names
+the card that fills it — so this table is also the inventory of what is still missing.
+
+| Step | Entrelares | Gestão IM360 | Desmalha |
+| --- | --- | --- | --- |
+| **1** hostname (prod) | `api.entrelares.app` | `api.gestaoim360.com` | `api.desmalha.app` |
+| **1** hostname (dev) | `api-dev.entrelares.app` | `api-dev.gestaoim360.com` | `api-dev.desmalha.app` |
+| **1** DNS + custom domain | — (03.2) | — (03.2) | — (03.2) |
+| **1** Google Cloud project | — (02.1, 02.2) | not applicable — no social login | not applicable — OTP only |
+| **2** target | Supabase prod (Pro org) | Supabase prod (Pro org) | Supabase prod (Free org) |
+| **2** migrations/functions live in | `entrelares-flutter` | `gestao-im360` | `desmalha` |
+| **3** `[env.<tenant>]` in `wrangler.toml` | `entrelares` ✓ | `gestaoim360` ✓ | `desmalha` ✓ |
+| **3** `TENANT_HOST` | — (03.2 · see A below) | — (03.2 · see A) | — (03.2 · see A) |
+| **3** `ALLOWED_ORIGINS` | `https://web.entrelares.app,https://entrelares.app` | `https://app.gestaoim360.com` | *empty* — native only (see C) |
+| **3** `BLOCK_OAUTH_REDIRECT` | `true` | `false` | `false` |
+| **3** `CANARY` | `false` | `false` | `true` (see D) |
+| **3** secrets | — (03.2) | — (03.2) | — (03.2) |
+| **4** clients | app + console (see B) | app (web + Android) | app (Android) |
+| **4** config file | `lib/env.dart` ×2 | `Ambiente` | `lib/env.dart` |
+| **4** `gateway_url_test` | — (03.4, 03.4.2) | — (03.4.3) | — (03.4.4) |
+| **4** `no_supabase_outside_adapters_test` | — (04.1: 3 files; 04.1.2: 4) | — (04.1.3: 20 files) | — (04.1.4: 1 file) |
+| **4** `no_oauth_redirect_test` | — (02.3) | not applicable | not applicable |
+| **5** contract fixtures | two users, two families | two users, no overlap | two accounts |
+| **5** matrix row | — (03.3) | — (03.3) | — (03.3, 05.4) |
+| **6** card + mirror item | 03.4 · `next-item` | 03.4.3 · `proxima-tarefa` | 03.4.4 · `notion-proxima-tarefa` |
+| **7** backup matrix row | — (04.2) | — (04.2) | — (04.2) |
+
+### What the dry run found
+
+**A. `TENANT_HOST` does not exist yet, anywhere.** Contract §3.2 requires it and card 01.5
+decided it, but it is absent from all four envs in `gateway/wrangler.toml` *and* from the
+`Env` interface in `gateway/src/tenants.ts`. Two owners: **card 03.1** adds it to `Env` and
+enforces it, **card 03.2** sets it in the four envs. Recorded here so neither card meets it
+by surprise — a step 3 executed today produces a deploy that cannot answer `404
+unknown_tenant`.
+
+**B. A tenant with two clients is normal.** Entrelares has the app and the operator console
+sharing one hostname, one target and one tenant key; the console is a second run of step 4
+(card 03.4.2) and of nothing else. This is what §0 states as a rule, and it came from
+looking at the three.
+
+**C. `ALLOWED_ORIGINS = ""` is a value, not a gap.** Desmalha has no web client, and empty
+means *no origin is allowed*, never *all are* (contract §3.5). Left as the one worked
+example of the empty case so nobody "fixes" it.
+
+**D. Desmalha carries `CANARY = "true"` in production on purpose.** It is the tenant that
+proves the port (R4) and the first to switch target in Phase 05. Deliberate, and stated
+here because a reviewer comparing the three envs will otherwise read it as a mistake.
+
+**E. Step 7 is unexecutable for all three today.** Neither `pg_dump_r2.yml` nor
+`restore_check.yml` exists — `backup/` holds only its README. Card 04.2 writes both, at the
+repository root (the divergence recorded in `CLAUDE.md`: GitHub runs workflows only from
+the root `.github/workflows/`). Until it lands, no tenant can reach proof 4 of §8.
+
+**F. Nothing in steps 1–7 is product-specific in this repository.** The only per-tenant
+lines Fulcrum owns are the env block of step 3 and two matrix rows (steps 5 and 7) — which
+is the measurable form of card 07.3's gate: a new app is onboarded without touching
+`gateway/src/`.
+
+Source: Decisions §5; `docs/contract.md` §2.1, §3.2, §3.5, §7; `docs/testing.md` §4.2, §7;
+`gateway/wrangler.toml`; architecture document §05.

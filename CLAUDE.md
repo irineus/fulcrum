@@ -78,14 +78,20 @@ execute and close a card.
   "the final backend".
 
 ## How an app joins Fulcrum (Decisions §5 — current and future apps)
-1. **Own identity (R1):** hostname `api.<product>`, its own Google Cloud project if it has
-   social login, verified domain, policy and terms published.
+**A tenant is a product, not an app** (01.6): one hostname, one target, one tenant key, and
+any number of clients — Entrelares is one tenant with two (the app and the console). Step 4
+runs once per client; every other step once per tenant.
+1. **Own identity (R1):** hostnames `api.<product>` **and** `api-dev.<product>`, reserved
+   together; its own Google Cloud project if it has social login, verified domain, policy
+   and terms published.
 2. **Own target:** a database/project of its own — never a schema in another product's
    database. Migrations and functions stay **in the app's repo**; Fulcrum has no SQL and no
    domain.
 3. **Env in `gateway/wrangler.toml`:** `TENANT`, `TENANT_HOST`, `TARGET`, `CANARY`,
    `ALLOWED_ORIGINS`, `BLOCK_OAUTH_REDIRECT`; secrets via `wrangler secret put`. Custom
-   domain on Cloudflare.
+   domain on Cloudflare (`custom_domain = true` creates the DNS record — do not hand-create
+   it). `TENANT_PUBLIC_KEY` is **generated** (`openssl rand -hex 32`), never the target's
+   anon key: reusing it couples the two and the coupling only shows on switch day (01.6).
 4. **In the app:** `env.dart` → `https://api.<product>` + tenant key; `Supabase.initialize`
    and nothing more. Source gates: `no_supabase_outside_adapters_test`, `gateway_url_test`,
    `no_oauth_redirect_test` (when there is social login). Social login always through the
