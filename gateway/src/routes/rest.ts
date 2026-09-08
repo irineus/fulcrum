@@ -1,10 +1,9 @@
-import { notImplemented } from '../skeleton';
-import type { Env } from '../tenants';
+import { forward, type Ctx } from '../forward';
 
 /**
- * PostgREST passthrough: swaps apikey, JWT untouched; Prefer, Range and Accept-Profile pass; body streamed; no cache (R5).
- * Card 03.1.
+ * PostgREST passthrough — the bulk of the traffic. Swaps `apikey`, leaves the user's JWT
+ * untouched; `Prefer`, `Range` and `Accept-Profile` pass; the body streams; no cache (R5).
  */
-export async function handleRest(_req: Request, _env: Env): Promise<Response> {
-  return notImplemented('03.1');
+export async function handleRest(ctx: Ctx): Promise<Response> {
+  return forward(ctx);
 }

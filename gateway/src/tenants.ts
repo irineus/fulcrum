@@ -1,10 +1,12 @@
 /**
  * Per-deploy configuration. One Worker, one wrangler env per tenant: the deploy's own
- * vars say which tenant it is, and `Host` only double-checks (Decisions §3).
+ * vars say which tenant it is, and `Host` is checked against `TENANT_HOST` (Decisions §3).
  */
 export interface Env {
   // Public vars (wrangler.toml).
   TENANT: string;
+  /** The hostname this deploy serves. A request whose `Host` differs is 404 (contract §3.2). */
+  TENANT_HOST: string;
   TARGET: TargetName;
   CANARY: 'true' | 'false';
   /** Comma-separated origins allowed by CORS; empty for a native-only app. */
@@ -25,6 +27,7 @@ export type TargetName = 'supabase' | 'neon';
 
 export interface Tenant {
   name: string;
+  host: string;
   allowedOrigins: string[];
   canary: boolean;
   blockOAuthRedirect: boolean;
@@ -34,10 +37,20 @@ export interface Tenant {
 export function tenantFor(env: Env): Tenant {
   return {
     name: env.TENANT,
+    host: env.TENANT_HOST,
     allowedOrigins: env.ALLOWED_ORIGINS.split(',')
       .map((origin) => origin.trim())
       .filter((origin) => origin.length > 0),
     canary: env.CANARY === 'true',
     blockOAuthRedirect: env.BLOCK_OAUTH_REDIRECT === 'true',
   };
+}
+
+/**
+ * `Host` decides the tenant (Decisions §3). Cloudflare routes a custom domain to exactly
+ * one deploy, so a mismatch should be impossible — the check exists so that sentence is
+ * true in the code and not only in the DNS, and it costs one unit test instead of a deploy.
+ */
+export function hostMatches(req: Request, tenant: Tenant): boolean {
+  return new URL(req.url).host === tenant.host;
 }

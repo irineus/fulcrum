@@ -215,12 +215,14 @@ ignore red.
 needs no secret and no network beyond the package registry. It is the matrix a session can
 run by hand.
 
-> **Open item for card 03.1.** The `local` matrix fronts a target on `http://127.0.0.1`,
-> and today `hostOf()` refuses any target URL that is not `https` (a deliberate check, with
-> a unit test). Card 03.1 has to resolve this when it writes target resolution for real:
-> either allow `http` when and only when the host is loopback (asserted by a unit test, so
-> the exception cannot widen), or have the local stack terminate TLS. This is 03.1's call,
-> not a docs decision — it is recorded here so the card does not meet it by surprise.
+> **Resolved by card 03.1 (08/09/2026).** The `local` matrix fronts a target on
+> `http://127.0.0.1`, and target resolution used to refuse any URL that was not `https`.
+> `originOf()` now allows `http` **when and only when the host is loopback**
+> (`localhost`, `127.0.0.1`, `[::1]`); `http` to anything else still throws, because an
+> unencrypted hop across the public internet would carry the user's JWT in the clear.
+> `tenants.test.ts` pins both halves — the three loopback forms and four refusals — so the
+> exception cannot widen quietly. A `Target` now carries an `origin` (scheme + host + port)
+> rather than a bare host, since the forwarded request has to know the scheme.
 
 ### 4.1 When each one runs, and what blocks a merge
 
@@ -268,19 +270,23 @@ the half of the contract that is decided before any target is contacted.
 
 | File | Asserts |
 | --- | --- |
-| `dispatch.test.ts` | every protocol prefix reaches its route module; anything else is `404` |
-| `tenants.test.ts` | `tenantFor` reads the env correctly; a target exposes host and public key only, refuses a non-`https` URL, and fails loudly when unconfigured |
+| `dispatch.test.ts` | every protocol prefix reaches its route module and is forwarded verbatim; `/health`; the two `404`s |
+| `keys.test.ts` | `401 invalid_tenant_key`: missing, wrong, a user JWT alone; the pre-login `Bearer`; the `/health` and `/webhooks` exemptions; the Realtime query parameter |
+| `oauth.test.ts` | the `410`, and everything next to it that is *not* blocked |
+| `cors.test.ts` | preflight allowed, preflight refused, the real request from a foreign origin, no `Origin` at all |
+| `canary.test.ts` | header honoured, ignored, unrecognised; always consumed, always reported |
+| `forward.test.ts` | the four touched headers, the untouched JWT, verbatim path and query, `redirect: 'manual'`, the webhook rewrite, and the source gate for "no body reader" |
+| `log.test.ts` | the six fields, the prefix instead of the path, and no key or token anywhere in a line |
+| `tenants.test.ts` | `tenantFor`, `hostMatches`, and `originOf` — https everywhere, `http` only on loopback |
 | `domain_gate.test.ts` | the anti-domain gate (§6) |
 
-Card 03.1 grows the first file from "the module is reached" into the real assertions —
-`Host` versus `TENANT_HOST`, the `apikey` swap, the `Bearer` distinction, the `410`, the
-CORS answers, canary resolution. Everything in contract §3 and §4 is decided without
-touching a target and therefore belongs here, cheap and fast; the contract suite then
-confirms the same behaviour end to end. Testing it in only one of the two places is a gap
-either way.
+Everything in contract §3 and §4 is decided without touching a target and therefore belongs
+here, cheap and fast; the contract suite then confirms the same behaviour end to end.
+Testing it in only one of the two places is a gap either way.
 
-**The `501 not_implemented` assertions are temporary scaffolding.** They exist so the
-skeleton is not untested, and card 03.1 deletes them along with `src/skeleton.ts`.
+**The `501 not_implemented` scaffolding is gone.** It existed so the skeleton was not
+untested; card 03.1 deleted it with `src/skeleton.ts` and replaced it with the assertions
+above.
 
 ---
 

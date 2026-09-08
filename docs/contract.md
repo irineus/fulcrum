@@ -137,7 +137,7 @@ followed. A `302` from GoTrue is the client's `302`.
 
 ## 3. Errors the gateway itself produces
 
-Exactly four, plus one temporary. **Everything else in a response came from the target.**
+Exactly four status codes. **Everything else in a response came from the target.**
 That is the contract's most useful property: if an app sees an error, it either carries
 the Fulcrum envelope or it is the backend's own answer, unmodified.
 
@@ -160,7 +160,6 @@ is.
 | `401` | `invalid_tenant_key` | `apikey` (or the pre-login `Bearer`) missing or ≠ `TENANT_PUBLIC_KEY` |
 | `410` | `oauth_redirect_blocked` | `GET /auth/v1/authorize?provider=google` while `BLOCK_OAUTH_REDIRECT=true` |
 | `403` | `origin_not_allowed` | CORS **preflight** from an origin outside `ALLOWED_ORIGINS` |
-| `501` | `not_implemented` | a route whose card has not landed yet — disappears with card 03.1 |
 
 ### 3.2 `404` — the host and the route
 
