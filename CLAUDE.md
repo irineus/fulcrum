@@ -51,6 +51,12 @@ execute and close a card.
 - **Deploy triggers (03.2):** a push to a card branch deploys the **dev** envs; a merge into
   `main` deploys **prod**, behind an approval. One long branch (`main`) — dev is ahead of
   prod by the trigger, not by a second branch to keep in sync.
+- **Where per-product isolation stops.** Each product owns its provider account at the
+  target (Decisions §4), but the **Cloudflare account is a single shared one** — it *is* the
+  shared mechanism of R1 — and Workers Free's 100k req/day is **per account**. So one
+  product's spike spends the allowance of all three. The answer is the flat US$ 5 plan, not
+  three Cloudflare accounts: three would cost three CI API tokens and the end of "one
+  codebase, one deploy per env" to solve what US$ 5 solves. Card 08.3 watches req/day.
 - **Routes forwarded:** `/auth/v1/*`, `/rest/v1/*`, `/functions/v1/*`, `/storage/v1/*`,
   `/realtime/v1/*` (WebSocket passthrough). **Own routes:** `/webhooks/<provider>` (Asaas,
   Play RTDN — forwarded only; the function verifies the signature), `/health`
