@@ -44,13 +44,19 @@ execute and close a card.
 ## Stack and hosting (Decisions §3)
 - **Gateway:** Cloudflare Worker, TypeScript, **one codebase, two deploys per tenant** —
   `wrangler` envs `entrelares`, `gestaoim360`, `desmalha` behind `api.<product>`, and
-  `<tenant>-dev` behind `api-dev.<product>` (card 03.2 replaces today's single shared
-  `[env.dev]`, which is pinned to one tenant and isolates nothing). Workers Free (100k
+  `<tenant>-dev` behind `api-dev.<product>` — the six envs card 03.2 wrote, replacing the
+  single shared `[env.dev]` that was pinned to one tenant and isolated nothing. `TENANT` is
+  the product in both flavours; the env name carries the flavour. Workers Free (100k
   req/day **per account**; above that a flat US$ 5 — the only fixed cost Fulcrum can ever
   grow).
-- **Deploy triggers (03.2):** a push to a card branch deploys the **dev** envs; a merge into
-  `main` deploys **prod**, behind an approval. One long branch (`main`) — dev is ahead of
-  prod by the trigger, not by a second branch to keep in sync.
+- **Deploy triggers (03.2):** a push to a card branch (`card/**` or `claude/**`) deploys the
+  three **dev** envs; a merge into `main` deploys the three **prod** envs, behind the
+  approval of the `production` GitHub Environment. One long branch (`main`) — dev is ahead of
+  prod by the trigger, not by a second branch to keep in sync. `.github/workflows/deploy.yml`
+  runs lint + tests itself before either, and skips the deploy with a green run while
+  `CLOUDFLARE_API_TOKEN` / `CLOUDFLARE_ACCOUNT_ID` are unset. `FULCRUM_VERSION` (the
+  `version` of `/health`) is the short SHA, injected with `--var`, which adds to the env's
+  vars instead of replacing them.
 - **Where per-product isolation stops.** Each product owns its provider account at the
   target (Decisions §4), but the **Cloudflare account is a single shared one** — it *is* the
   shared mechanism of R1 — and Workers Free's 100k req/day is **per account**. So one
@@ -130,7 +136,7 @@ gateway/                 the Worker (TypeScript, wrangler, vitest)
   src/canary.ts          pickTargetName + targetFor: var | header | percentage  (03.1)
   src/routes/*.ts        auth rest functions storage realtime webhooks health   (03.1)
   src/targets/*.ts       supabase.ts neon.ts — origin + anon key           (01.4, 03.1)
-  test/unit/             core, forward, cors, canary, log, the anti-domain gate  (01.4, 03.1)
+  test/unit/             core, forward, cors, canary, log, anti-domain + config gates (01.4, 03.1, 03.2)
   test/contract/         runs against TARGET_URL — any target            (03.3, 05.4)
   wrangler.toml          [env.<tenant>] + [env.<tenant>-dev], three tenants each  (03.2)
 targets/neon/            Cloud Run manifests, Dockerfiles, Neon scripts (05.1–05.2)
@@ -181,10 +187,11 @@ npm ci                 # Node ≥ 22 (the cloud image ships 22 on PATH)
 npm run lint           # tsc --noEmit + prettier --check
 npm test               # vitest: unit tests + the anti-domain gate
 npm run test:contract  # against FULCRUM_URL + TARGET_URL — empty until card 03.3
-npm run dev            # wrangler dev --env dev (local only; nothing is deployed from a session)
-                       # `dev` is the last shared env: card 03.2 replaces it with one per
-                       # tenant, and this becomes `wrangler dev --env <tenant>-dev`. The
-                       # script keeps working until that card lands and changes both.
+npm run dev            # wrangler dev --env entrelares-dev (local only; a session deploys nothing)
+                       # Any tenant: npx wrangler dev --env <tenant>-dev. No Host header
+                       # needed — `wrangler dev` builds the request URL from the env's
+                       # `routes` custom domain, not from the Host it receives, so the
+                       # TENANT_HOST check passes locally (measured, card 03.2).
 ```
 CI (`.github/workflows/ci.yml`) runs `lint` + `test` on every push and PR. Deploys are the
 deploy workflow's (card 03.2) — **never run `wrangler deploy` or `wrangler secret put` from a

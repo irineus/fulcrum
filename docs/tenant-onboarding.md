@@ -138,9 +138,15 @@ anon key would silently couple the two and only reveal it on the day of the swit
 
 **Two envs, not one.** The block above is repeated as `[env.<tenant>-dev]` behind
 `api-dev.<product>`, pointing at that tenant's **dev** Supabase project, with
-`CANARY = "true"` and the dev origins. A shared dev env was rejected in 08/09/2026: the
-single `[env.dev]` in the file today is pinned to one tenant, so it isolates nothing and
-cannot be what `api-dev.<product>` fronts for the other two (card 03.2 replaces it).
+`CANARY = "true"` and loopback origins. A shared dev env was rejected in 08/09/2026: the
+single `[env.dev]` was pinned to one tenant, so it isolated nothing and could not be what
+`api-dev.<product>` fronts for the other two. Card 03.2 replaced it with the three, and
+`gateway/test/unit/config.test.ts` now fails if a seventh env appears.
+
+`TENANT` is the **product** in both flavours — the dev deploy of Entrelares still answers
+`tenant: "entrelares"`. That is the point: the `supabase-dev` contract matrix asserts the
+tenant an app will meet in production, and the hostname dialled plus `version` are what
+tell the two deploys apart.
 
 **How each one reaches production.** One long branch, two triggers: a push to a card branch
 deploys the **dev** envs, so a change is live on `api-dev.*` while its pull request is open;
@@ -247,19 +253,20 @@ the card that fills it — so this table is also the inventory of what is still 
 | --- | --- | --- | --- |
 | **1** hostname (prod) | `api.entrelares.app` | `api.gestaoim360.com` | `api.desmalha.app` |
 | **1** hostname (dev) | `api-dev.entrelares.app` | `api-dev.gestaoim360.com` | `api-dev.desmalha.app` |
-| **1** DNS + custom domain | — (03.2) | — (03.2) | — (03.2) |
+| **1** DNS + custom domain | — (03.2 · deploy) | — (03.2 · deploy) | — (03.2 · deploy) |
 | **1** Google Cloud project | — (02.1, 02.2) | not applicable — no social login | not applicable — OTP only |
 | **2** Supabase account | its own | its own | its own |
 | **2** target (prod) | Supabase Free | Supabase Free | Supabase Free |
 | **2** target (dev) | Supabase Free | Supabase Free (`sa-east-1`) | Supabase Free |
 | **2** migrations/functions live in | `entrelares-flutter` | `gestao-im360` | `desmalha` |
 | **3** `[env.<tenant>]` in `wrangler.toml` | `entrelares` ✓ | `gestaoim360` ✓ | `desmalha` ✓ |
-| **3** `[env.<tenant>-dev]` | — (03.2 · see G) | — (03.2 · see G) | — (03.2 · see G) |
-| **3** `TENANT_HOST` | — (03.2 · see A below) | — (03.2 · see A) | — (03.2 · see A) |
-| **3** `ALLOWED_ORIGINS` | `https://web.entrelares.app,https://entrelares.app` | `https://app.gestaoim360.com` | *empty* — native only (see C) |
+| **3** `[env.<tenant>-dev]` | `entrelares-dev` ✓ | `gestaoim360-dev` ✓ | `desmalha-dev` ✓ |
+| **3** `TENANT_HOST` | `api.entrelares.app` · `api-dev.entrelares.app` ✓ | `api.gestaoim360.com` · `api-dev.gestaoim360.com` ✓ | `api.desmalha.app` · `api-dev.desmalha.app` ✓ |
+| **3** `ALLOWED_ORIGINS` (prod) | `https://web.entrelares.app,https://entrelares.app` | `https://app.gestaoim360.com` | *empty* — native only (see C) |
+| **3** `ALLOWED_ORIGINS` (dev) | loopback only (see H) | loopback only (see H) | *empty* — native in dev too |
 | **3** `BLOCK_OAUTH_REDIRECT` | `true` | `false` | `false` |
-| **3** `CANARY` | `false` | `false` | `true` (see D) |
-| **3** secrets | — (03.2) | — (03.2) | — (03.2) |
+| **3** `CANARY` | prod `false` · dev `true` | prod `false` · dev `true` | prod `true` (see D) · dev `true` |
+| **3** secrets | — (03.2 · six sets, by hand) | — (03.2 · six sets, by hand) | — (03.2 · six sets, by hand) |
 | **4** clients | app + console (see B) | app (web + Android) | app (Android) |
 | **4** config file | `lib/env.dart` ×2 | `Ambiente` | `lib/env.dart` |
 | **4** `gateway_url_test` | — (03.4, 03.4.2) | — (03.4.3) | — (03.4.4) |
@@ -272,12 +279,15 @@ the card that fills it — so this table is also the inventory of what is still 
 
 ### What the dry run found
 
-**A. `TENANT_HOST` does not exist yet, anywhere.** Contract §3.2 requires it and card 01.5
-decided it, but it is absent from every env in `gateway/wrangler.toml` *and* from the
-`Env` interface in `gateway/src/tenants.ts`. Two owners: **card 03.1** adds it to `Env` and
-enforces it, **card 03.2** sets it in all six envs. Recorded here so neither card meets it
-by surprise — a step 3 executed today produces a deploy that cannot answer `404
-unknown_tenant`.
+**A. `TENANT_HOST` did not exist anywhere — CLOSED.** Contract §3.2 required it and card
+01.5 decided it, but it was absent from every env in `gateway/wrangler.toml` *and* from the
+`Env` interface in `gateway/src/tenants.ts`, so a step 3 executed then produced a deploy
+that could not answer `404 unknown_tenant`. Both halves have landed: **card 03.1**
+(08/09/2026) added it to `Env` and made `Host` be checked against it; **card 03.2**
+(08/09/2026) set it in all six envs. What replaced the hole is a test rather than a promise:
+`gateway/test/unit/config.test.ts` reads `wrangler.toml` and fails if any env's
+`TENANT_HOST` disagrees with the custom domain it is routed on — the one mistake `src/` can
+never catch, because the code is right and the configuration is wrong.
 
 **B. A tenant with two clients is normal.** Entrelares has the app and the operator console
 sharing one hostname, one target and one tenant key; the console is a second run of step 4
@@ -309,13 +319,22 @@ has to carry:
 
 - **Step 3 produces two envs, not one:** `[env.<tenant>]` and `[env.<tenant>-dev]`, the
   second fronting that tenant's dev project at `api-dev.<product>`. The single shared
-  `[env.dev]` in `wrangler.toml` today is pinned to `TENANT = "entrelares"` and isolates
-  nothing — card 03.2 replaces it with one per tenant.
+  `[env.dev]` was pinned to `TENANT = "entrelares"` and isolated nothing — card 03.2
+  (08/09/2026) replaced it with one per tenant, six envs in all.
 - **Credentials are per account, never shared.** Every workflow that reaches a target — the
   contract matrices (`docs/testing.md` §3.3) and the backup matrix (step 7) — needs its own
   set per tenant, because there is no single login that sees all six projects. The
   per-tenant secret naming both already use is what makes that work; nothing here assumes
   one account, and nothing should start to.
+
+**H. A dev env allows loopback origins only** (decided 08/09/2026, card 03.2). A dev
+gateway is called by a web client running on the developer's machine, so
+`http://localhost:8080` and `http://127.0.0.1:8080` are the whole list — naming a hosted
+`web-dev.<product>` that does not exist would be a dead line in the file, and repeating the
+production origins would let a production build talk to a dev target, which is the mixture
+per-tenant dev envs exist to end. Desmalha stays empty in dev for the same reason it is
+empty in production: no web client. `config.test.ts` pins it — a dev origin that is not
+loopback fails the suite.
 
 Source: Decisions §4 and §5; `docs/contract.md` §2.1, §3.2, §3.5, §7; `docs/testing.md`
 §3.3, §4.2, §7; `gateway/wrangler.toml`; architecture document §05.

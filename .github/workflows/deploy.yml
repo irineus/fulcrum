@@ -1,0 +1,129 @@
+name: Deploy
+
+# Two triggers, one long branch (Decisions §3, card 03.2).
+#
+#   push to a card branch  → the three DEV envs, no approval. A change is live on
+#                            `api-dev.*` while its pull request is open.
+#   push to `main`         → the three PRODUCTION envs, behind an approval.
+#
+# Dev leads production by the trigger, not by a second long branch to keep in sync.
+#
+# `verify` runs lint + unit tests before either, so nothing reaches Cloudflare from a
+# commit that CI would reject, and no approval is ever requested for a broken build.
+# It is the same pair `ci.yml` runs; duplicating it costs a minute and buys the deploy
+# its own gate rather than a race with a workflow that could still be running.
+
+on:
+  push:
+    branches:
+      - main
+      - "card/**"
+      - "claude/**"
+  workflow_dispatch:
+
+concurrency:
+  # One deploy at a time per branch; a newer push supersedes an older dev deploy, and
+  # production is never raced by two merges.
+  group: deploy-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    outputs:
+      # `secrets` is not readable from a job-level `if`, so the answer travels as an
+      # output. Until Irineu creates the Cloudflare API token (card 03.2), every push
+      # lands here and the deploy jobs skip with a green run and a line saying why —
+      # a red X on every branch would say nothing true about the code.
+      deployable: ${{ steps.token.outputs.present }}
+    defaults:
+      run:
+        working-directory: gateway
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: gateway/package-lock.json
+      - run: npm ci
+      - name: Lint (tsc + prettier)
+        run: npm run lint
+      - name: Unit tests + anti-domain gate
+        run: npm test
+      - name: Is the Cloudflare token configured?
+        id: token
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          if [ -n "$CLOUDFLARE_API_TOKEN" ] && [ -n "$CLOUDFLARE_ACCOUNT_ID" ]; then
+            echo "present=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "present=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::No CLOUDFLARE_API_TOKEN / CLOUDFLARE_ACCOUNT_ID secret — skipping the deploy. See docs/runbook.md §Deploy."
+          fi
+
+  dev:
+    # Every branch that is not `main`. The trigger list above is what limits which
+    # branches reach this workflow at all.
+    if: github.ref_name != 'main' && needs.verify.outputs.deployable == 'true'
+    needs: verify
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        tenant: [entrelares, gestaoim360, desmalha]
+    defaults:
+      run:
+        working-directory: gateway
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: gateway/package-lock.json
+      - run: npm ci
+      - name: Deploy ${{ matrix.tenant }}-dev
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        # `--var` adds to the vars of the env; it does not replace them.
+        run: npx wrangler deploy --env ${{ matrix.tenant }}-dev --var FULCRUM_VERSION:"${GITHUB_SHA::7}-dev"
+
+  approve-production:
+    # The approval gate is a job of its own so `main` asks once, not once per tenant.
+    if: github.ref_name == 'main' && needs.verify.outputs.deployable == 'true'
+    needs: verify
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - run: echo "Approved — deploying ${{ github.sha }} to the three production envs."
+
+  production:
+    needs: approve-production
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        tenant: [entrelares, gestaoim360, desmalha]
+    defaults:
+      run:
+        working-directory: gateway
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: gateway/package-lock.json
+      - run: npm ci
+      - name: Deploy ${{ matrix.tenant }}
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: npx wrangler deploy --env ${{ matrix.tenant }} --var FULCRUM_VERSION:"${GITHUB_SHA::7}"
