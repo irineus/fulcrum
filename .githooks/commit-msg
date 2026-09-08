@@ -1,0 +1,67 @@
+#!/usr/bin/env sh
+# .githooks/commit-msg — keeps `Backlog: <card>` a real git trailer.
+#
+# WHY THIS EXISTS. `git log --format='%(trailers:key=Backlog,valueonly)'` reads only the
+# LAST paragraph of a commit message. The board's convention has been broken twice, each
+# time for a different reason and both times silently:
+#
+#   c5b8050 (card 01.7)  two lines of leaked tool-call syntax landed AFTER `Backlog: 01.7`,
+#                        so it stopped being the last block.
+#   card 03.1, pre-amend  `Backlog: 03.1` sat one blank line above `Co-Authored-By`, which
+#                        makes two blocks — CLAUDE.md says the message ends with the
+#                        trailer, the session's attribution says it ends with
+#                        `Co-Authored-By`, and both being "last" resolves as two paragraphs.
+#
+# Neither is caught by reading carefully, because the message is already written by the
+# time anyone could look. So this repairs instead of lecturing: it moves the line into the
+# final trailer block and says what it did. `git interpret-trailers` does the placing, so
+# the result is exactly what git itself considers a trailer.
+#
+# Installed by `bash tool/setup_env.sh` (`git config core.hooksPath .githooks`).
+# NOT a guard for the squash-merge message: that one is written through the GitHub API and
+# no local hook ever sees it — there the check is the skill's post-merge verification.
+set -eu
+
+MSG="$1"
+
+parses() {
+	git interpret-trailers --parse <"$MSG" | grep -q '^Backlog:'
+}
+
+# A commit message essentially never ends with a bare `</tag>` line; leaked tool syntax
+# does. Drop such lines from the end, whatever else is wrong.
+strip_trailing_tags() {
+	while [ -s "$MSG" ] && tail -n 1 "$MSG" | grep -qE '^[[:space:]]*</?[A-Za-z_][A-Za-z0-9_-]*>[[:space:]]*$'; do
+		sed -i.bak '$d' "$MSG" && rm -f "$MSG.bak"
+		REPAIRED=1
+	done
+}
+
+REPAIRED=0
+strip_trailing_tags
+
+# Nothing claims a card, or git already reads it: leave the message alone.
+if ! grep -qE '^Backlog:[[:space:]]*[^[:space:]]' "$MSG"; then
+	[ "$REPAIRED" -eq 1 ] && printf 'commit-msg: dropped leaked tag lines from the end of the message.\n'
+	exit 0
+fi
+if parses; then
+	[ "$REPAIRED" -eq 1 ] && printf 'commit-msg: dropped leaked tag lines from the end of the message.\n'
+	exit 0
+fi
+
+VALUE=$(grep -E '^Backlog:[[:space:]]*[^[:space:]]' "$MSG" | head -n 1 | sed 's/^Backlog:[[:space:]]*//')
+# `cat -s` collapses the blank-line pair the removal leaves behind. Only reached when the
+# message is already malformed, so it cannot reshape a well-formed one.
+grep -vE '^Backlog:[[:space:]]*' "$MSG" | cat -s >"$MSG.tmp" && mv "$MSG.tmp" "$MSG"
+# `--where start`: the convention in the healthy commits is Backlog above Co-Authored-By.
+git interpret-trailers --where start --trailer "Backlog: $VALUE" --in-place "$MSG"
+
+if parses; then
+	printf 'commit-msg: moved "Backlog: %s" into the final trailer block (it was not one).\n' "$VALUE"
+	exit 0
+fi
+
+printf 'commit-msg: "Backlog: %s" could not be made a trailer. Fix the message by hand:\n' "$VALUE" >&2
+printf '  it must sit in the LAST block, with no blank line before Co-Authored-By.\n' >&2
+exit 1
