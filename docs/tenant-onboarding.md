@@ -136,8 +136,16 @@ anon key, and that is the point: it is what stays the same when the target chang
 switching backends costs a variable and not an app release (Decisions §3). Reusing the
 anon key would silently couple the two and only reveal it on the day of the switch.
 
-Which env the dev hostname maps to — one shared `dev` env or one per tenant — is **card
-03.2's decision**; this step only reserves the name from §1.
+**Two envs, not one.** The block above is repeated as `[env.<tenant>-dev]` behind
+`api-dev.<product>`, pointing at that tenant's **dev** Supabase project, with
+`CANARY = "true"` and the dev origins. A shared dev env was rejected in 08/09/2026: the
+single `[env.dev]` in the file today is pinned to one tenant, so it isolates nothing and
+cannot be what `api-dev.<product>` fronts for the other two (card 03.2 replaces it).
+
+**How each one reaches production.** One long branch, two triggers: a push to a card branch
+deploys the **dev** envs, so a change is live on `api-dev.*` while its pull request is open;
+a merge into `main` deploys **prod**, behind an approval. Dev leads prod by the trigger, not
+by a second long branch to keep in sync.
 
 ## 4. In the app — once per client
 
@@ -265,9 +273,9 @@ the card that fills it — so this table is also the inventory of what is still 
 ### What the dry run found
 
 **A. `TENANT_HOST` does not exist yet, anywhere.** Contract §3.2 requires it and card 01.5
-decided it, but it is absent from all four envs in `gateway/wrangler.toml` *and* from the
+decided it, but it is absent from every env in `gateway/wrangler.toml` *and* from the
 `Env` interface in `gateway/src/tenants.ts`. Two owners: **card 03.1** adds it to `Env` and
-enforces it, **card 03.2** sets it in the four envs. Recorded here so neither card meets it
+enforces it, **card 03.2** sets it in all six envs. Recorded here so neither card meets it
 by surprise — a step 3 executed today produces a deploy that cannot answer `404
 unknown_tenant`.
 
