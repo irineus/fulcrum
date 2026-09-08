@@ -8,6 +8,11 @@
 #
 # Custom domains, secrets and the deploy workflow are card 03.2. Until it lands this file
 # is configuration on paper: nothing here has been deployed.
+#
+# TENANT_HOST is the hostname each deploy serves; `Host` is checked against it and a
+# mismatch is 404 unknown_tenant (docs/contract.md §3.2). Card 01.6 split it in halves —
+# the field and the check in 03.1, the six envs in 03.2 — and 03.1 fills the four envs
+# that exist today so `npm run dev` is not left answering 404 in between.
 
 name = "fulcrum"
 main = "src/index.ts"
@@ -18,6 +23,7 @@ workers_dev = false
 routes = [{ pattern = "api.entrelares.app", custom_domain = true }]
 [env.entrelares.vars]
 TENANT = "entrelares"
+TENANT_HOST = "api.entrelares.app"
 TARGET = "supabase"
 CANARY = "false"
 ALLOWED_ORIGINS = "https://web.entrelares.app,https://entrelares.app"
@@ -27,6 +33,7 @@ BLOCK_OAUTH_REDIRECT = "true"
 routes = [{ pattern = "api.gestaoim360.com", custom_domain = true }]
 [env.gestaoim360.vars]
 TENANT = "gestaoim360"
+TENANT_HOST = "api.gestaoim360.com"
 TARGET = "supabase"
 CANARY = "false"
 ALLOWED_ORIGINS = "https://app.gestaoim360.com"
@@ -36,6 +43,7 @@ BLOCK_OAUTH_REDIRECT = "false"
 routes = [{ pattern = "api.desmalha.app", custom_domain = true }]
 [env.desmalha.vars]
 TENANT = "desmalha"
+TENANT_HOST = "api.desmalha.app"
 TARGET = "supabase"
 CANARY = "true"
 # Native app only — no web origin.
@@ -49,6 +57,10 @@ BLOCK_OAUTH_REDIRECT = "false"
 [env.dev]
 [env.dev.vars]
 TENANT = "entrelares"
+# `wrangler dev` serves on localhost, so this is the Host the Worker actually receives —
+# with a real hostname here every local request would answer 404 unknown_tenant. The three
+# `[env.<tenant>-dev]` envs of card 03.2 carry `api-dev.<product>` instead.
+TENANT_HOST = "localhost:8787"
 TARGET = "supabase"
 CANARY = "true"
 ALLOWED_ORIGINS = "http://localhost:8080,http://127.0.0.1:8080"
