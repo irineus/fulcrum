@@ -51,7 +51,10 @@ execute and close a card.
   grow).
 - **Deploy triggers (03.2):** a push to a card branch (`card/**` or `claude/**`) deploys the
   three **dev** envs; a merge into `main` deploys the three **prod** envs, behind the
-  approval of the `production` GitHub Environment. One long branch (`main`) — dev is ahead of
+  approval of the `production` GitHub Environment — **which is why this repository is
+  public**: Required reviewers on a private repo needs GitHub Enterprise, while on a public
+  one it is free on every plan (found on 08/09/2026, after 03.2 had already shipped the
+  workflow assuming the checkbox existed). One long branch (`main`) — dev is ahead of
   prod by the trigger, not by a second branch to keep in sync. `.github/workflows/deploy.yml`
   runs lint + tests itself before either, and skips the deploy with a green run while
   `CLOUDFLARE_API_TOKEN` / `CLOUDFLARE_ACCOUNT_ID` are unset. `FULCRUM_VERSION` (the
@@ -79,8 +82,9 @@ execute and close a card.
   `ALLOWED_ORIGINS`, `BLOCK_OAUTH_REDIRECT`. (`TENANT_HOST` was added by card 01.5: `Host`
   is checked against it and a mismatch is a 404 — `docs/contract.md` §3.2.) **Secrets** via `wrangler secret put --env <tenant>`:
   `TENANT_PUBLIC_KEY`, `TARGET_SUPABASE_URL`, `TARGET_SUPABASE_ANON`, `TARGET_NEON_URL`,
-  `TARGET_NEON_ANON`. Never the privileged key.
-- **The key an app carries is the tenant's**, opaque and public. When the target changes it
+  `TARGET_NEON_ANON`. Never the privileged key. Six sets, one per env — `TENANT_PUBLIC_KEY`
+  is **per env**, so a dev build cannot open the production gateway (09/09/2026).
+- **The key an app carries is its env's**, opaque and public. When the target changes it
   does not — that is what avoids publishing an app. **Accepted consequence:** switching a
   tenant's target invalidates that product's sessions (the JWT is signed by the target's
   GoTrue); users sign in again, once, in a low-traffic window, warned beforehand.
