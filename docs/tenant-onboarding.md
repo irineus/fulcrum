@@ -136,6 +136,12 @@ anon key, and that is the point: it is what stays the same when the target chang
 switching backends costs a variable and not an app release (Decisions §3). Reusing the
 anon key would silently couple the two and only reveal it on the day of the switch.
 
+**One key per ENV, not one per tenant** (decided 09/09/2026, card 03.2). A tenant is still
+one product, but the key belongs to the *deploy*: `entrelares` and `entrelares-dev` carry
+different values, so a dev build cannot open the production gateway with the key it ships.
+Step 4 therefore runs with the key of the flavour it is configuring — the dev flavour of
+`env.dart` carries the dev key.
+
 **Two envs, not one.** The block above is repeated as `[env.<tenant>-dev]` behind
 `api-dev.<product>`, pointing at that tenant's **dev** Supabase project, with
 `CANARY = "true"` and loopback origins. A shared dev env was rejected in 08/09/2026: the
