@@ -1,0 +1,9 @@
+# One line ending, in the index and on disk: LF, everywhere, on every platform.
+#
+# `eol=lf` overrides `core.autocrlf`, which on Windows checks CRLF out while the
+# index keeps LF. `prettier --check` expects LF, so `npm run lint` failed on 32
+# files nobody had touched — and CI, being Linux, could never see it. Card 01.9.
+#
+# `text=auto` still lets git detect binary content and leave it alone; the repo
+# has no binary file today, so no pattern is listed for one.
+* text=auto eol=lf

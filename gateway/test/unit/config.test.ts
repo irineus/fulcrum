@@ -1,4 +1,4 @@
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { parse as parseToml } from 'smol-toml';
 import { parse as parseYaml } from 'yaml';
@@ -234,5 +234,53 @@ describe('deploy.yml — two triggers, and dev never reaches production', () => 
     for (const secret of SECRET_NAMES) {
       expect(text).not.toContain(secret);
     }
+  });
+});
+
+const GITATTRIBUTES_PATH = resolve(REPO, '.gitattributes');
+
+/**
+ * The line-ending gate (card 01.9).
+ *
+ * `core.autocrlf` checks CRLF out on Windows while the index keeps LF, so
+ * `prettier --check` — which expects LF — failed on 32 files nobody had touched. The
+ * defect belongs in this file for the same reason the two above do, only more so: it is
+ * invisible from CI BY CONSTRUCTION. Every runner is Linux, so no run of the workflow,
+ * green or red, says anything about the line endings a Windows checkout gets. Deleting
+ * `.gitattributes` would cost a person an afternoon and cost CI nothing.
+ */
+describe('.gitattributes — one line ending, and CI cannot check it', () => {
+  const attributes = () => readFileSync(GITATTRIBUTES_PATH, 'utf8');
+
+  it('exists at the repository root', () => {
+    // Only the root file applies to the whole tree; one under `gateway/` would leave the
+    // workflows, the commit hook and the docs on whatever the platform defaults to.
+    expect(existsSync(GITATTRIBUTES_PATH)).toBe(true);
+  });
+
+  it('normalizes every path to LF', () => {
+    const rules = attributes()
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .filter((line) => line !== '' && !line.startsWith('#'));
+    expect(rules).toContain('* text=auto eol=lf');
+  });
+
+  it('never re-enables CRLF for a path', () => {
+    // One `eol=crlf` on a later line would win for the paths it matches, and the file
+    // would still read as though the rule above covered everything.
+    expect(attributes()).not.toContain('eol=crlf');
+  });
+
+  it('is itself stored with LF', () => {
+    expect(attributes()).not.toMatch(/\r/);
+  });
+
+  it('keeps prettier on LF, which is what makes the checkout the thing to fix', () => {
+    // Setting `endOfLine` to `auto` or `crlf` in `.prettierrc` would silence the Windows
+    // lint by teaching CI on Linux to accept CRLF too — the fix that hides the defect
+    // instead of removing it (card 01.9).
+    const prettier = JSON.parse(readFileSync(resolve(REPO, 'gateway/.prettierrc'), 'utf8'));
+    expect(prettier.endOfLine ?? 'lf').toBe('lf');
   });
 });

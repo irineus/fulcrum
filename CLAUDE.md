@@ -140,7 +140,7 @@ gateway/                 the Worker (TypeScript, wrangler, vitest)
   src/canary.ts          pickTargetName + targetFor: var | header | percentage  (03.1)
   src/routes/*.ts        auth rest functions storage realtime webhooks health   (03.1)
   src/targets/*.ts       supabase.ts neon.ts — origin + anon key           (01.4, 03.1)
-  test/unit/             core, forward, cors, canary, log, anti-domain + config gates (01.4, 03.1, 03.2)
+  test/unit/             core, forward, cors, canary, log, anti-domain, config, eol gates (01.4, 03.1, 03.2, 01.9)
   test/contract/         runs against TARGET_URL — any target            (03.3, 05.4)
   wrangler.toml          [env.<tenant>] + [env.<tenant>-dev], three tenants each  (03.2)
 targets/neon/            Cloud Run manifests, Dockerfiles, Neon scripts (05.1–05.2)
@@ -149,6 +149,7 @@ packages/fulcrum_client/ optional pure-Dart package                       (06.1)
 docs/                    contract.md (01.5) · tenant-onboarding.md (01.6) · testing.md (01.7) · runbook.md (04.4, 08.2)
 .github/workflows/       ci.yml (01.4) · deploy (03.2) · pg_dump_r2.yml + restore_check.yml (04.2)
 .githooks/commit-msg     keeps `Backlog:` a real trailer; installed by tool/setup_env.sh
+.gitattributes           `* text=auto eol=lf` — LF on every checkout, any OS   (01.9)
 ```
 **One divergence from the plan, recorded here on purpose:** the architecture document and
 card 01.4 place the backup workflows under `backup/.github/workflows/`. GitHub only runs
@@ -200,6 +201,18 @@ npm run dev            # wrangler dev --env entrelares-dev (local only; a sessio
 CI (`.github/workflows/ci.yml`) runs `lint` + `test` on every push and PR. Deploys are the
 deploy workflow's (card 03.2) — **never run `wrangler deploy` or `wrangler secret put` from a
 session**; `.claude/settings.json` denies both.
+
+**Line endings — LF everywhere (card 01.9).** The root `.gitattributes` carries
+`* text=auto eol=lf`, so every checkout writes LF on any platform and `prettier --check`
+(LF by default) agrees with the index. It acts on **checkout**: a clone made before it
+still has CRLF on disk and still fails `npm run lint`. Rewrite that working tree once,
+without touching content: `git rm --cached -r . && git reset --hard` (commit or stash
+first — `reset --hard` discards uncommitted work). Two repairs to refuse:
+`prettier --write`, which would rewrite 32 files with CRLF and produce a huge diff of
+nothing, and relaxing `endOfLine` in `.prettierrc`, which would only teach CI on Linux
+to accept CRLF too. `test/unit/config.test.ts` gates all three, because **CI cannot see
+this defect** — every runner is Linux, so no run of it, green or red, says anything about
+what a Windows checkout gets.
 
 **Cloud sessions:** `bash tool/setup_env.sh` (checks Node ≥ 22 and runs `npm ci`). Hosts
 needed: `registry.npmjs.org` (in the Trusted list). From card 03.3 on, the contract suite
