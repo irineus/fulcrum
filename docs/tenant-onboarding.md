@@ -60,6 +60,38 @@ screen — never another product's. That sharing is exactly the bug Fulcrum exis
   and Android dev; the Web ID goes into *Authorized Client IDs* of the Google provider in
   the target's GoTrue, and is the `serverClientId` the app passes.
 
+Six things the console does that the list above does not say, each measured against a real
+tenant while card 02.1 ran (09/09/2026):
+
+- **Nobody chooses the domain the user reads.** The client editor states it: *"The domains
+  of the URIs you add below will be automatically added to your OAuth consent screen as
+  authorized domains."* A redirect URI pointing at the target **inscribes the target's
+  domain** on the screen. So the leak R1 names is not a field somebody filled in wrong — it
+  is the default behaviour of adding the only redirect URI the product needs.
+- **The Google project must be the one the app's `google-services.json` comes from**, when
+  the product also uses FCM. An Android OAuth client (package + SHA-1) is only visible to a
+  build whose `google-services.json` is generated from the same project, and the Web client
+  that becomes `serverClientId` has to live there too. Push arrives first in most products,
+  so it is the OAuth client that moves — never the push project.
+- **One client per environment, not one client for two.** A single client holding prod's
+  and dev's redirect URIs also shares one consent screen, one secret and one verification
+  state; a dev mistake then lands on the production screen.
+- **Search Console verification is per Google ACCOUNT.** Owning the domain is not enough:
+  *Authorized domains* accepts it only if the account that owns the project is a verified
+  owner. Check with IAM (`console.cloud.google.com/iam-admin/iam?project=<id>`, role
+  `Owner`) and then the property picker in Search Console **signed in as that account**.
+  Prefer a Domain property (`sc-domain:`, DNS TXT) — it covers every subdomain, and the
+  field wants the root domain anyway, never `web.<product>`.
+- **Publishing and the logo are two different clocks.** With only the non-sensitive scopes
+  (`openid`, `userinfo.email`, `userinfo.profile`), *Publish app* reaches production
+  immediately and asks for no verification. **Uploading a logo triggers brand
+  verification**, which sits pending for days. Read the gate line as one action and the
+  card blocks for no reason: publish first, submit the logo second.
+- **`User support email` is a dropdown, not a text field.** It offers the signed-in account
+  and Google Groups that account administers — so `suporte@<product>` is unavailable unless
+  the domain has Workspace or Cloud Identity, and the personal account shows on the screen
+  instead. `Developer contact information`, on the same page, *is* free text.
+
 Cards 02.1 and 02.2 are this step done for Entrelares, screen by screen; a new tenant with
 social login repeats them.
 
@@ -260,7 +292,7 @@ the card that fills it — so this table is also the inventory of what is still 
 | **1** hostname (prod) | `api.entrelares.app` | `api.gestaoim360.com` | `api.desmalha.app` |
 | **1** hostname (dev) | `api-dev.entrelares.app` | `api-dev.gestaoim360.com` | `api-dev.desmalha.app` |
 | **1** DNS + custom domain | — (03.2 · deploy) | — (03.2 · deploy) | — (03.2 · deploy) |
-| **1** Google Cloud project | — (02.1, 02.2) | not applicable — no social login | not applicable — OTP only |
+| **1** Google Cloud project | `entrelares-prod` + `entrelares-dev` — the projects FCM already uses; consent screen 02.1, clients 02.2 | not applicable — no social login | not applicable — OTP only |
 | **2** Supabase account | its own | its own | its own |
 | **2** target (prod) | Supabase Free | Supabase Free | Supabase Free |
 | **2** target (dev) | Supabase Free | Supabase Free (`sa-east-1`) | Supabase Free |
