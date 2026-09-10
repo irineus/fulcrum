@@ -140,7 +140,8 @@ gateway/                 the Worker (TypeScript, wrangler, vitest)
   src/canary.ts          pickTargetName + targetFor: var | header | percentage  (03.1)
   src/routes/*.ts        auth rest functions storage realtime webhooks health   (03.1)
   src/targets/*.ts       supabase.ts neon.ts — origin + anon key           (01.4, 03.1)
-  test/unit/             core, forward, cors, canary, log, anti-domain, config, eol gates (01.4, 03.1, 03.2, 01.9)
+  test/unit/             core, forward, cors, canary, log, anti-domain, config, eol,
+                         dependency-pin gates       (01.4, 03.1, 03.2, 01.9, 01.10)
   test/contract/         runs against TARGET_URL — any target            (03.3, 05.4)
   wrangler.toml          [env.<tenant>] + [env.<tenant>-dev], three tenants each  (03.2)
 targets/neon/            Cloud Run manifests, Dockerfiles, Neon scripts (05.1–05.2)
@@ -232,3 +233,13 @@ how `wrangler` installs it anyway.
 - **The anti-domain gate greps comments too.** The first run of card 01.4 failed on its own
   explanatory comment naming the privileged key. That is the gate working: write "the
   privileged server key" in prose, keep the literal for the test that hunts it.
+- **`npm audit fix` moves `wrangler` here — `--force` or not (card 01.10).** The build
+  tree is `wrangler` → `miniflare` → `sharp`, and `miniflare` pins `sharp` **exactly**, so
+  no range in `package.json` can patch an advisory against it: npm's remedy is always to
+  climb to a newer `wrangler`, which also moves `workerd` — the runtime the gateway runs
+  on. The fix is an `overrides` entry naming the leaf package alone, which is why
+  `gateway/package.json` carries `"overrides": {"sharp": "0.35.4"}`. The gate in
+  `test/unit/config.test.ts` **retires it for you**: the lockfile keeps miniflare's
+  *declared* `sharp` next to the *resolved* one, and the day a `wrangler` bump makes them
+  agree, the test fails until the override is deleted. Never override `wrangler`,
+  `workerd` or `miniflare` — a third assertion refuses it.

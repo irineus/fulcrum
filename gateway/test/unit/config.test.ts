@@ -284,3 +284,98 @@ describe('.gitattributes — one line ending, and CI cannot check it', () => {
     expect(prettier.endOfLine ?? 'lf').toBe('lf');
   });
 });
+
+const PACKAGE_JSON_PATH = resolve(REPO, 'gateway/package.json');
+const PACKAGE_LOCK_PATH = resolve(REPO, 'gateway/package-lock.json');
+
+/** The version `GHSA-rgj7-g3m4-5g8c` was fixed in; anything below it is the open alert. */
+const SHARP_FIXED = '0.35.4';
+
+/** The toolchain a security patch is never allowed to move. See the block below. */
+const RUNTIME_PACKAGES = ['wrangler', 'workerd', 'miniflare'];
+
+interface PackageJson {
+  devDependencies: Record<string, string>;
+  overrides?: Record<string, string>;
+}
+
+/** One entry of `packages` in a lockfileVersion 3 file. */
+interface LockEntry {
+  version?: string;
+  dependencies?: Record<string, string>;
+}
+
+const packageJson = () => JSON.parse(readFileSync(PACKAGE_JSON_PATH, 'utf8')) as PackageJson;
+
+const lockPackages = () =>
+  (JSON.parse(readFileSync(PACKAGE_LOCK_PATH, 'utf8')) as { packages: Record<string, LockEntry> })
+    .packages;
+
+/**
+ * Plain `x.y.z` comparison. Every version this gate reads is a `sharp` release, which is
+ * always three numbers — a general semver implementation would be more code than the
+ * thing it guards.
+ */
+function atLeast(version: string, minimum: string): boolean {
+  const parts = (value: string) => value.split('.').map((part) => Number.parseInt(part, 10));
+  const [actual, wanted] = [parts(version), parts(minimum)];
+  for (let i = 0; i < wanted.length; i += 1) {
+    const left = actual[i] ?? 0;
+    const right = wanted[i] ?? 0;
+    if (left !== right) return left > right;
+  }
+  return true;
+}
+
+/**
+ * The dependency-pin gate (card 01.10).
+ *
+ * `sharp` reaches this repository three levels down — `wrangler` → `miniflare` → `sharp`
+ * — and `miniflare` pins it EXACTLY, so nothing inside the declared ranges can fix the
+ * advisory on its own. Upstream did fix it, in `miniflare@5.20260910.0-alpha`, but that
+ * miniflare arrives only with `wrangler@4.131.0`, which also moves `workerd`: the Worker
+ * runtime. So the fix here is an `overrides` entry that moves `sharp` and nothing else.
+ *
+ * Two things are worth reading as data rather than remembering. The first is that the
+ * override must not outlive its reason: once the resolved miniflare asks for a fixed
+ * `sharp` by itself, an override still sitting there is a pin nobody is watching. The
+ * second is the correction this card measured — `npm audit fix` moves `wrangler` here
+ * WITHOUT `--force`, because `4.131.0` satisfies the declared `^4.129.0`, so the warning
+ * the card was written with ("refuse `--force`") was not enough on its own.
+ */
+describe('gateway dependencies — a security patch that moves sharp and nothing else', () => {
+  it('resolves sharp to a version the advisory considers fixed', () => {
+    const sharp = lockPackages()['node_modules/sharp'];
+    expect(sharp?.version).toBeDefined();
+    expect(atLeast(sharp!.version!, SHARP_FIXED)).toBe(true);
+  });
+
+  it('keeps the override for exactly as long as miniflare still asks for a broken sharp', () => {
+    // The lockfile keeps miniflare's DECLARED dependency next to the RESOLVED one, so the
+    // two can be compared: `dependencies.sharp` is what miniflare wants, `node_modules/
+    // sharp` is what the override gave it. When the first catches up, this fails and says
+    // to delete the second — the day a wrangler bump makes the override dead weight.
+    const declared = lockPackages()['node_modules/miniflare']?.dependencies?.sharp;
+    expect(declared).toBeDefined();
+    const override = packageJson().overrides?.sharp;
+
+    if (atLeast(declared!, SHARP_FIXED)) {
+      expect(override).toBeUndefined();
+    } else {
+      expect(override).toBeDefined();
+      expect(atLeast(override!, SHARP_FIXED)).toBe(true);
+    }
+  });
+
+  it('never overrides the toolchain that defines the Worker runtime', () => {
+    // `wrangler` decides what `wrangler dev` and the deploy do, and it pins `workerd`,
+    // which IS the runtime the gateway runs on. Pinning any of the three from here would
+    // pair versions upstream never shipped together, to fix an image library the Worker
+    // never calls. Whoever needs a newer wrangler bumps the dependency and re-runs this
+    // file; they do not reach for an override.
+    const overrides = Object.keys(packageJson().overrides ?? {});
+    for (const name of RUNTIME_PACKAGES) {
+      expect(overrides).not.toContain(name);
+    }
+  });
+});
