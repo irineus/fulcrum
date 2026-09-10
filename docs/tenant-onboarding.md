@@ -67,7 +67,8 @@ tenant while card 02.1 ran (09/09/2026):
   of the URIs you add below will be automatically added to your OAuth consent screen as
   authorized domains."* A redirect URI pointing at the target **inscribes the target's
   domain** on the screen. So the leak R1 names is not a field somebody filled in wrong — it
-  is the default behaviour of adding the only redirect URI the product needs.
+  is what adding a redirect URI does. And the fix is to add **none**: a product whose only
+  flow is native never needs one (below).
 - **The Google project must be the one the app's `google-services.json` comes from**, when
   the product also uses FCM. An Android OAuth client (package + SHA-1) is only visible to a
   build whose `google-services.json` is generated from the same project, and the Web client
@@ -91,6 +92,45 @@ tenant while card 02.1 ran (09/09/2026):
   and Google Groups that account administers — so `suporte@<product>` is unavailable unless
   the domain has Workspace or Cloud Identity, and the personal account shows on the screen
   instead. `Developer contact information`, on the same page, *is* free text.
+
+Five more the client IDs taught, measured while card 02.2 ran (10/09/2026):
+
+- **The Web client carries no redirect URI at all.** Its Client ID is the `serverClientId`
+  the app passes and the `aud` the target's GoTrue checks — none of which is a browser
+  redirect. Give it *Authorized JavaScript origins* only, and the target's domain never
+  reaches the consent screen. Take the origins from the tenant's `ALLOWED_ORIGINS` in
+  `gateway/wrangler.toml`: an origin the gateway answers `403 origin_not_allowed` on
+  preflight is an origin the Google button must not render on. Its client secret is
+  generated anyway and used by nothing.
+- **The gate is coverage of `(package, SHA-1)` pairs, not a count of clients.** An Android
+  OAuth client holds exactly **one** fingerprint, so every certificate that can sign that
+  package needs its own client: upload key **and** Play App Signing key for the store
+  build, and — where the dev flavour has a release keystore of its own — that keystore
+  **and** the machine's debug keystore, because `flutter run` without `--release` signs
+  with the latter. Miss one and the failure is `ApiException: 10` on a device, months
+  later, with no message that says why. The debug fingerprint belongs to the *machine*: a
+  second developer needs a client of their own.
+- **Two consoles, two contributions, neither sufficient alone.** The OAuth client in Google
+  Cloud is what makes the pair valid to Google. The same fingerprint registered in Firebase
+  is what makes `google-services.json` **list** it. Registering only in Firebase left the
+  client list untouched (Firebase creates clients only when its own Google sign-in is on,
+  and here authentication is the target's); creating only in Cloud left the file without
+  its `client_type: 1` entries. Do both, then verify both — the client list, and a
+  `certificate_hash` in the file, which is the SHA-1 lowercased with the colons stripped.
+- **The Play App Signing fingerprint lives at a URL with no menu.** In the Play Console,
+  *Setup → App signing* is gone, *App integrity* redirects to *Protected with Play*, which
+  does not carry certificates, and inventing a deep link lands on the account home. The old
+  slug still resolves: `play.google.com/console/u/0/developers/<dev>/app/<app>/keymanagement`.
+  Third-party console menus move without notice or useful redirect; record the **slug**,
+  never the menu path.
+- **A tenant already live migrates by ADDING a client ID, never by swapping it.** The
+  provider's *Client IDs* is a comma-separated list used only to validate the id_token's
+  `aud`, so the new Web ID goes in beside the old one and the two flows coexist: the
+  published build keeps its redirect flow through the old client while the native flow
+  starts working. Swapping the client ID and secret instead would break the published app —
+  and keeping it alive would force a redirect URI onto the new client, re-inscribing the
+  target's domain on the consent screen the migration exists to clean. The old ID and the
+  secret come out later, when the app that needed them is gone.
 
 Cards 02.1 and 02.2 are this step done for Entrelares, screen by screen; a new tenant with
 social login repeats them.
@@ -216,7 +256,10 @@ Three source gates, specified here and owned by the app's repository (`docs/test
 | `no_oauth_redirect_test` | `signInWithOAuth` appears nowhere in `lib/` | only where there is social login |
 
 Social sign-in is always the native flow (`signInWithIdToken`); the browser redirect is
-answered `410` by the gateway when `BLOCK_OAUTH_REDIRECT=true` (contract §3.4).
+answered `410` by the gateway when `BLOCK_OAUTH_REDIRECT=true` (contract §3.4). A client
+with social sign-in carries a third public value, the Web client ID of **its own flavour's**
+Google project — a dev build holding the production one asks Google to mint a token for the
+wrong audience, and the target rejects it without saying so.
 
 **The order is mandatory: gateway first, app second** (contract §7). An app never points at
 a hostname that does not answer yet — which is why `gateway_url_test` lands in the same PR
@@ -292,7 +335,7 @@ the card that fills it — so this table is also the inventory of what is still 
 | **1** hostname (prod) | `api.entrelares.app` | `api.gestaoim360.com` | `api.desmalha.app` |
 | **1** hostname (dev) | `api-dev.entrelares.app` | `api-dev.gestaoim360.com` | `api-dev.desmalha.app` |
 | **1** DNS + custom domain | — (03.2 · deploy) | — (03.2 · deploy) | — (03.2 · deploy) |
-| **1** Google Cloud project | `entrelares-prod` + `entrelares-dev` — the projects FCM already uses; consent screen 02.1, clients 02.2 | not applicable — no social login | not applicable — OTP only |
+| **1** Google Cloud project | `entrelares-prod` + `entrelares-dev` — the projects FCM already uses; consent screen 02.1, six clients 02.2, both done | not applicable — no social login | not applicable — OTP only |
 | **2** Supabase account | its own | its own | its own |
 | **2** target (prod) | Supabase Free | Supabase Free | Supabase Free |
 | **2** target (dev) | Supabase Free | Supabase Free (`sa-east-1`) | Supabase Free |
