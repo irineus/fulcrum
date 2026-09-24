@@ -228,7 +228,7 @@ Step 4 therefore runs with the key of the flavour it is configuring — the dev 
 
 **Two envs, not one.** The block above is repeated as `[env.<tenant>-dev]` behind
 `api-dev.<product>`, pointing at that tenant's **dev** Supabase project, with
-`CANARY = "true"` and loopback origins. A shared dev env was rejected in 08/09/2026: the
+`CANARY = "true"` and loopback plus the hosted dev web channels that exist (§H). A shared dev env was rejected in 08/09/2026: the
 single `[env.dev]` was pinned to one tenant, so it isolated nothing and could not be what
 `api-dev.<product>` fronts for the other two. Card 03.2 replaced it with the three, and
 `gateway/test/unit/config.test.ts` now fails if a seventh env appears.
@@ -361,7 +361,7 @@ the card that fills it — so this table is also the inventory of what is still 
 | **3** `[env.<tenant>-dev]` | `entrelares-dev` ✓ | `gestaoim360-dev` ✓ | `desmalha-dev` ✓ |
 | **3** `TENANT_HOST` | `api.entrelares.app` · `api-dev.entrelares.app` ✓ | `api.gestaoim360.com` · `api-dev.gestaoim360.com` ✓ | `api.desmalha.app` · `api-dev.desmalha.app` ✓ |
 | **3** `ALLOWED_ORIGINS` (prod) | `https://web.entrelares.app,https://entrelares.app` | `https://app.gestaoim360.com` | *empty* — native only (see C) |
-| **3** `ALLOWED_ORIGINS` (dev) | loopback only (see H) | loopback only (see H) | *empty* — native in dev too |
+| **3** `ALLOWED_ORIGINS` (dev) | loopback + `qa.entrelares.app` + the per-PR preview pattern (see H) | loopback + `homolog.gestaoim360.com` (see H) | *empty* — native in dev too |
 | **3** `BLOCK_OAUTH_REDIRECT` | `true` | `false` | `false` |
 | **3** `CANARY` | prod `false` · dev `true` | prod `false` · dev `true` | prod `true` (see D) · dev `true` |
 | **3** secrets | — (03.2 · six sets, by hand) | — (03.2 · six sets, by hand) | — (03.2 · six sets, by hand) |
@@ -428,14 +428,16 @@ has to carry:
   per-tenant secret naming both already use is what makes that work; nothing here assumes
   one account, and nothing should start to.
 
-**H. A dev env allows loopback origins only** (decided 08/09/2026, card 03.2). A dev
-gateway is called by a web client running on the developer's machine, so
-`http://localhost:8080` and `http://127.0.0.1:8080` are the whole list — naming a hosted
-`web-dev.<product>` that does not exist would be a dead line in the file, and repeating the
-production origins would let a production build talk to a dev target, which is the mixture
-per-tenant dev envs exist to end. Desmalha stays empty in dev for the same reason it is
-empty in production: no web client. `config.test.ts` pins it — a dev origin that is not
-loopback fails the suite.
+**H. A dev env allows loopback and the hosted dev web channels that exist** (card 03.2.1,
+24/09/2026, superseding "loopback only" of card 03.2). The 08/09 rule rested on "no hosted
+dev web client exists"; by 24/09 two did — `qa.entrelares.app` with a preview per pull
+request, and `homolog.gestaoim360.com` (already live on 06/09, missed by 03.2). Without them
+every preflight from those builds would answer `403 origin_not_allowed` the day they point
+at `api-dev.<product>`. What still holds: a dev list never repeats a production origin (a
+production build must not talk to a dev target), and Desmalha stays empty in dev for the
+same reason it is empty in production. The per-PR previews use the one kind of pattern the
+contract allows, in dev only (`docs/contract.md` §3.5). `config.test.ts` pins the exact
+lists, refuses a pattern in production and a broad pattern anywhere.
 
 Source: Decisions §4 and §5; `docs/contract.md` §2.1, §3.2, §3.5, §7; `docs/testing.md`
 §3.3, §4.2, §7; `gateway/wrangler.toml`; architecture document §05.

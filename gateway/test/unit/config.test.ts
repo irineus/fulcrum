@@ -2,6 +2,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { parse as parseToml } from 'smol-toml';
 import { parse as parseYaml } from 'yaml';
+import { patternProblem } from '../../src/cors';
 import { describe, expect, it } from 'vitest';
 
 /**
@@ -131,19 +132,41 @@ describe('wrangler.toml — six envs, production and dev per tenant', () => {
     expect(varOf(name, 'CANARY')).toBe('true');
   });
 
-  it.each(DEV_ENVS)('%s allows only loopback web origins', (name) => {
-    // Decided 08/09/2026: a dev gateway is called by a web client on the developer's
-    // machine. Repeating the production origins would let a production build talk to a
-    // dev target — the mixture per-tenant dev envs exist to end. Empty means NO web
+  it.each(DEV_ENVS)('%s allows loopback, https dev channels and nothing of production', (name) => {
+    // Card 03.2.1 (24/09/2026) superseded "loopback only" (08/09): hosted dev web channels
+    // exist. Still never a production origin — that would let a production build talk to
+    // a dev target, the mixture per-tenant dev envs exist to end. Empty means NO web
     // client (Desmalha), never "allow all" — `docs/contract.md` §3.5.
+    const production = originsOf(name.replace(/-dev$/, ''));
     for (const origin of originsOf(name)) {
-      expect(origin).toMatch(/^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/);
+      expect(origin).toMatch(/^(http:\/\/(localhost|127\.0\.0\.1)(:\d+)?|https:\/\/\S+)$/);
+      expect(production).not.toContain(origin);
     }
   });
 
-  it.each(PROD_ENVS)('%s allows only https web origins', (name) => {
+  it('names exactly the dev web channels that exist (card 03.2.1)', () => {
+    const LOOPBACK = ['http://localhost:8080', 'http://127.0.0.1:8080'];
+    expect(originsOf('entrelares-dev')).toEqual([
+      ...LOOPBACK,
+      'https://qa.entrelares.app',
+      'https://pr-*.entrelares-web-qa.pages.dev',
+    ]);
+    expect(originsOf('gestaoim360-dev')).toEqual([...LOOPBACK, 'https://homolog.gestaoim360.com']);
+    expect(originsOf('desmalha-dev')).toEqual([]);
+  });
+
+  it.each(ALL_ENVS)('%s carries only narrow patterns', (name) => {
+    // One `*`, sharing its label with fixed text, three fixed labels after it — never
+    // `*.pages.dev` or `*.dev` (src/cors.ts `patternProblem`).
+    for (const origin of originsOf(name)) {
+      expect(patternProblem(origin), origin).toBeNull();
+    }
+  });
+
+  it.each(PROD_ENVS)('%s allows only exact https origins — no pattern in production', (name) => {
     for (const origin of originsOf(name)) {
       expect(origin).toMatch(/^https:\/\//);
+      expect(origin).not.toContain('*');
     }
   });
 
