@@ -9,7 +9,7 @@
   "scripts": {
     "lint": "tsc --noEmit && prettier --check .",
     "format": "prettier --write .",
-    "test": "vitest run",
+    "test": "vitest run test/unit",
     "test:unit": "vitest run test/unit",
     "test:contract": "vitest run test/contract",
     "dev": "wrangler dev --env entrelares-dev"

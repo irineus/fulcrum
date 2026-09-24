@@ -1,0 +1,106 @@
+name: Contract
+
+# The contract suite (card 03.3; docs/testing.md §3–4). It runs against a real gateway and a
+# real target, so it needs secrets, a shared dev project and the network — three reasons
+# it never blocks a pull request (§4.1). It runs nightly, by hand, and after every merge
+# into `main`; green in all three matrices is the precondition for switching any tenant's
+# target (Decisions §6).
+#
+# Per tenant, the workflow maps secrets onto the flat names of §3.1, so no test file ever
+# names a tenant. A tenant without contract secrets SKIPS, green, with a notice — only
+# Entrelares has fixtures today; the others join in their migration cards (onboarding
+# step 5: two users, six secrets, one matrix row).
+
+on:
+  schedule:
+    # 06:23 UTC nightly — after the backup (05:17), off the top of the hour.
+    - cron: "23 6 * * *"
+  workflow_dispatch:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  # One run at a time: the matrices share each tenant's dev project and its fixture users.
+  group: contract
+  cancel-in-progress: false
+
+jobs:
+  supabase-dev:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - tenant: entrelares
+            secret: ENTRELARES
+            fulcrum_url: https://api-dev.entrelares.app
+            target_url: https://buroanotfjcgvbfmacuh.supabase.co
+            allowed_origin: https://qa.entrelares.app
+            blocks_oauth: "true"
+            uses_otp: "false"
+          - tenant: gestaoim360
+            secret: GESTAOIM360
+            fulcrum_url: https://api-dev.gestaoim360.com
+            target_url: ""
+            allowed_origin: https://homolog.gestaoim360.com
+            blocks_oauth: "false"
+            uses_otp: "false"
+          - tenant: desmalha
+            secret: DESMALHA
+            fulcrum_url: https://api-dev.desmalha.app
+            target_url: ""
+            allowed_origin: ""
+            blocks_oauth: "false"
+            uses_otp: "true"
+    env:
+      FULCRUM_TENANT: ${{ matrix.tenant }}
+      FULCRUM_URL: ${{ matrix.fulcrum_url }}
+      TARGET_URL: ${{ matrix.target_url }}
+      FULCRUM_ALLOWED_ORIGIN: ${{ matrix.allowed_origin }}
+      FULCRUM_BLOCK_OAUTH_REDIRECT: ${{ matrix.blocks_oauth }}
+      FULCRUM_USES_OTP: ${{ matrix.uses_otp }}
+      FULCRUM_TENANT_KEY: ${{ secrets[format('FULCRUM_CONTRACT_{0}_TENANT_KEY', matrix.secret)] }}
+      TARGET_ANON_KEY: ${{ secrets[format('FULCRUM_CONTRACT_{0}_ANON_KEY', matrix.secret)] }}
+      CONTRACT_USER_A_EMAIL: ${{ secrets[format('FULCRUM_CONTRACT_{0}_USER_A_EMAIL', matrix.secret)] }}
+      CONTRACT_USER_A_PASSWORD: ${{ secrets[format('FULCRUM_CONTRACT_{0}_USER_A_PASSWORD', matrix.secret)] }}
+      CONTRACT_USER_B_EMAIL: ${{ secrets[format('FULCRUM_CONTRACT_{0}_USER_B_EMAIL', matrix.secret)] }}
+      CONTRACT_USER_B_PASSWORD: ${{ secrets[format('FULCRUM_CONTRACT_{0}_USER_B_PASSWORD', matrix.secret)] }}
+    defaults:
+      run:
+        working-directory: gateway
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: gateway/package-lock.json
+      - run: npm ci
+      - name: Does ${{ matrix.tenant }} have contract secrets?
+        id: fixtures
+        run: |
+          if [ -n "$FULCRUM_TENANT_KEY" ]; then
+            echo "present=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "present=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::${FULCRUM_TENANT}: no FULCRUM_CONTRACT_${{ matrix.secret }}_* secrets — skipped; it joins the matrix in its migration card (docs/testing.md §4.2)."
+          fi
+      - name: Contract suite — supabase-dev, ${{ matrix.tenant }}
+        if: steps.fixtures.outputs.present == 'true'
+        run: npm run test:contract
+
+  neon-dev:
+    # docs/testing.md §4: the matrix exists and reports skipped, with the reason, until
+    # Phase 05 — never green, never red.
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "::notice::neon-dev skipped — the alternative target arrives in Phase 05 (card 05.4)."
+
+  local:
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "::notice::local skipped — it needs a tenant's schema and fixture users in a local target, which live in the app's repository; Fulcrum never depends on an app (docs/testing.md §4, card 03.3)."
