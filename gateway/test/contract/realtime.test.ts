@@ -151,7 +151,7 @@ describe.skipIf(skipAll || !ENTRELARES)(
             },
             headers: { Prefer: 'return=representation' },
           });
-          expect(inserted.status).toBe(201);
+          expect(inserted.status, inserted.text).toBe(201);
 
           const change = await rt.next(
             (f) =>
