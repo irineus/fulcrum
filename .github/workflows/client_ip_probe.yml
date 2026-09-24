@@ -1,0 +1,43 @@
+name: Client IP probe
+
+# Card 03.2.2 — what IP does the target record for a call made through the gateway?
+#
+# Two runners (two distinct clients, two networks) each make three GETs to the Entrelares
+# public function `public-settings` — the one the landing reads — directly and through
+# `api.entrelares.app/webhooks/public-settings` (the key-exempt route, contract §1.3).
+# Read-only: the function only reads settings. Every call carries a User-Agent marker, so
+# the target's function edge logs (Supabase dashboard, or the Supabase MCP) show, per call,
+# the IP the target saw. If both runners come out as the same address through the gateway,
+# every per-IP rate limit of the target counts the whole product as one client.
+#
+# Kept after the card: the remedy card re-runs it to prove its fix.
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    strategy:
+      fail-fast: false
+      matrix:
+        client: [a, b]
+    steps:
+      - name: Three calls direct, three through the gateway — client ${{ matrix.client }}
+        env:
+          DIRECT: https://jptqbwfziyzlhlmoekzu.supabase.co/functions/v1/public-settings
+          GATEWAY: https://api.entrelares.app/webhooks/public-settings
+          TAG: fulcrum-0322-${{ github.run_id }}-${{ matrix.client }}
+        run: |
+          echo "runner public IPv4: $(curl -s -4 https://api.ipify.org)"
+          echo "runner public IPv6: $(curl -s -6 --max-time 5 https://api64.ipify.org || echo none)"
+          date -u +%Y-%m-%dT%H:%M:%SZ
+          for i in 1 2 3; do
+            curl -s -o /dev/null -w "direct  $i %{http_code} %{time_total}s\n" -A "$TAG-direct-$i" "$DIRECT"
+            curl -s -o /dev/null -w "gateway $i %{http_code} %{time_total}s\n" -A "$TAG-gateway-$i" "$GATEWAY"
+          done
+          date -u +%Y-%m-%dT%H:%M:%SZ
