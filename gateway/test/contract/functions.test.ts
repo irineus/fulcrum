@@ -65,7 +65,23 @@ describe.skipIf(skipAll)(
             const again = await call(way, settings, { headers: { 'If-None-Match': etag } });
             expect(again.status).toBe(304);
             expect(again.text).toBe('');
-            expect(again.headers.get('ETag')).toBe(etag);
+            // Measured 24/09/2026, identical both ways: the platform weakens the tag on the
+            // 200 (W/"…") and not on the 304 ("…"). The opaque tag is the same.
+            const opaque = (tag: string | null) => (tag ?? '').replace(/^W\//, '');
+            expect(opaque(again.headers.get('ETag'))).toBe(opaque(etag));
+          },
+        );
+
+        it.skipIf(!DIRECT)(
+          'the 304 carries the ETag exactly as the target sends it directly (contract §2.2)',
+          async () => {
+            const etag = (await call(TARGET, settings)).headers.get('ETag')!;
+            const [through, straight] = await Promise.all([
+              call(GATEWAY, settings, { headers: { 'If-None-Match': etag } }),
+              call(TARGET, settings, { headers: { 'If-None-Match': etag } }),
+            ]);
+            expect(through.status).toBe(304);
+            expect(through.headers.get('ETag')).toBe(straight.headers.get('ETag'));
           },
         );
 
