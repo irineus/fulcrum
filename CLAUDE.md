@@ -73,7 +73,10 @@ execute and close a card.
   `GET /auth/v1/authorize?provider=google` with 410 — native sign-in is the only flow. The
   whole promise, route by route and header by header, is `docs/contract.md` (card 01.5).
 - **Headers:** `Host` decides the tenant (consumed); `apikey` = the tenant's public key,
-  swapped for the target's anon key (likewise `Bearer <tenant key>` before login);
+  swapped for the target's publishable key `sb_publishable_…` (likewise `Bearer <tenant key>`
+  before login — Supabase takes a publishable key in `Bearer` only when it equals `apikey`,
+  which is what the double swap produces; the secret keeps its old name
+  `TARGET_SUPABASE_ANON`, card 03.2.3);
   `Authorization: Bearer <user JWT>` passes untouched; `X-Fulcrum-Target` selects the target
   only when `CANARY=true` (consumed); `Prefer`, `Range`, `Accept-Profile` pass. On the way
   back `Content-Range` and the body pass with no cache; CORS and an informational
@@ -118,7 +121,8 @@ gateway a watcher would depend on the edge and measure the wrong thing.
    `ALLOWED_ORIGINS`, `BLOCK_OAUTH_REDIRECT`; secrets via `wrangler secret put`. Custom
    domain on Cloudflare (`custom_domain = true` creates the DNS record — do not hand-create
    it). `TENANT_PUBLIC_KEY` is **generated** (`openssl rand -hex 32`), never the target's
-   anon key: reusing it couples the two and the coupling only shows on switch day (01.6).
+   key (publishable or legacy anon): reusing it couples the two and the coupling only shows
+   on switch day (01.6).
 4. **In the app:** `env.dart` → `https://api.<product>` + tenant key; `Supabase.initialize`
    and nothing more. Source gates: `no_supabase_outside_adapters_test`, `gateway_url_test`,
    `no_oauth_redirect_test` (when there is social login). Social login always through the
@@ -144,7 +148,7 @@ gateway/                 the Worker (TypeScript, wrangler, vitest)
   src/log.ts             the structured line: prefix, never the path      (03.1)
   src/canary.ts          pickTargetName + targetFor: var | header | percentage  (03.1)
   src/routes/*.ts        auth rest functions storage realtime webhooks health   (03.1)
-  src/targets/*.ts       supabase.ts neon.ts — origin + anon key           (01.4, 03.1)
+  src/targets/*.ts       supabase.ts neon.ts — origin + publishable key    (01.4, 03.1)
   test/unit/             core, forward, cors, canary, log, anti-domain, config, eol,
                          dependency-pin, backup gates  (01.4, 03.1, 03.2, 01.9, 01.10, 04.2)
   test/contract/         runs against TARGET_URL — any target            (03.3, 05.4)

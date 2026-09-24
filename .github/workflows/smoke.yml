@@ -1,0 +1,54 @@
+name: Smoke
+
+# Card 03.2.3 — the key swap, end to end, on a dev deploy: the three calls of
+# docs/runbook.md §Checking a deploy, run by a runner instead of a person.
+#
+# The call that matters is the second: the tenant key in `apikey` AND in
+# `Authorization: Bearer`, which is what every client sends before login. The gateway swaps
+# both for the target's publishable key (`sb_publishable_…`), and Supabase accepts a
+# publishable key in `Bearer` only when it equals `apikey` — so a 200 with GoTrue's
+# settings is the proof that the double swap reaches the target intact (contract §2.1).
+# The other two must be the gateway's own 401, told apart from the target's by
+# `source: "fulcrum"` in the body.
+#
+# Only entrelares-dev: its tenant key is the one Fulcrum holds as a secret
+# (FULCRUM_CONTRACT_ENTRELARES_TENANT_KEY, docs/testing.md §3.3). The other five hosts were
+# checked by Irineu with the same calls on 24/09/2026. The contract suite (card 03.3)
+# covers this and much more; this stays as the one-minute check after a key change.
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  key-swap:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      URL: https://api-dev.entrelares.app/auth/v1/settings
+      KEY: ${{ secrets.FULCRUM_CONTRACT_ENTRELARES_TENANT_KEY }}
+    steps:
+      - name: The key swap, end to end — entrelares-dev
+        run: |
+          set -uo pipefail
+          [ -n "$KEY" ] || { echo "::error::FULCRUM_CONTRACT_ENTRELARES_TENANT_KEY is not set"; exit 1; }
+          failed=0
+          check() { # <label> <expected status> <jq test on the body> [curl args...]
+            local label="$1" want="$2" test="$3"; shift 3
+            local got
+            got=$(curl -s -o body.json -w '%{http_code}' "$@" "$URL")
+            if [ "$got" = "$want" ] && jq -e "$test" body.json > /dev/null 2>&1; then
+              echo "OK   $label → $got"
+            else
+              echo "::error::FAIL $label → $got (wanted $want)"
+              failed=1
+            fi
+          }
+          check "tenant key in apikey and Bearer (before login)" 200 '.external != null' \
+            -H "apikey: $KEY" -H "Authorization: Bearer $KEY"
+          check "no key" 401 '.error == "invalid_tenant_key" and .source == "fulcrum"'
+          check "wrong key" 401 '.error == "invalid_tenant_key" and .source == "fulcrum"' \
+            -H "apikey: wrong"
+          exit $failed
