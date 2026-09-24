@@ -14,31 +14,44 @@ import { describe, expect, it } from 'vitest';
  *     user's JWT crosses untouched and RLS is the security.
  *
  * The table list is measured, not guessed: every `CREATE TABLE` in the three products'
- * `supabase/migrations/` on 2026-09-07. When a product adds a table, add it here — a
- * gate that trusts an old list rots quietly.
+ * `supabase/migrations/`, read with `git grep` on the remote branch, never a checkout.
+ * Measured 2026-09-24 (card 01.12) at entrelares-app origin/main 7b77cfe, gestao-im360
+ * origin/develop 2c06c02 and desmalha origin/main 97024a8; no migration drops or renames
+ * a table. The first list (2026-09-07) had rotted by eight Entrelares tables and four
+ * Gestão ones in seventeen days — which is why it is re-measured at every quarterly review
+ * (card 08.3) and by every card that touches an app. Fulcrum cannot read the apps from CI
+ * (it never depends on an app), so this list is the one manual step of the gate.
  */
 const PRODUCT_TABLES: Record<string, string[]> = {
-  // irineus/entrelares-flutter — supabase/migrations (schema_migrations excluded: PostgREST's own)
+  // irineus/entrelares-app — supabase/migrations (schema_migrations excluded: PostgREST's own)
   entrelares: [
     'account_logs',
     'activity_logs',
     'app_settings',
+    'auth_elevation_codes',
     'auth_elevations',
     'billing_events',
     'care_schedules',
+    'children',
+    'day_accounts',
+    'day_notice_outcomes',
+    'day_notices',
     'email_usage',
     'families',
     'family_deletion_requests',
     'family_deletion_responses',
     'family_invitations',
+    'member_activity_days',
     'notifications',
     'operator_audit_logs',
+    'plan_end_reminders',
     'platform_operators',
     'premium_interest',
     'profiles',
     'push_subscriptions',
     'roles',
     'subscriptions',
+    'support_requests',
     'swap_requests',
   ],
   // irineus/gestao-im360 — supabase/migrations
@@ -50,12 +63,16 @@ const PRODUCT_TABLES: Record<string, string[]> = {
     'bloco_aluno',
     'bloco_aluno_reposicao',
     'bloco_horario',
+    'certificado_checklist',
     'combo',
     'combo_curso',
     'curso',
     'curso_material',
     'demanda_projetada',
     'demanda_projetada_hist',
+    'importacao',
+    'importacao_ocorrencia',
+    'importacao_referencia',
     'material',
     'metodo',
     'modulo',

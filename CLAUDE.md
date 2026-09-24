@@ -99,8 +99,13 @@ execute and close a card.
 
 ## How an app joins Fulcrum (Decisions §5 — current and future apps)
 **A tenant is a product, not an app** (01.6): one hostname, one target, one tenant key, and
-any number of clients — Entrelares is one tenant with two (the app and the console). Step 4
-runs once per client; every other step once per tenant.
+any number of clients — Entrelares is one tenant with **three**: the app (`entrelares-app`,
+`app/`), the operator console (`entrelares-console`) and, since 24/09/2026, the landing's
+Worker (`entrelares-site`), which reads `public-settings` server-side. Step 4 runs once per
+client; every other step once per tenant. **What watches the target is not a client** and
+talks to it directly, never through the gateway: keep-awake pings (Gestão's
+`worker-vigia`), the backup dumps (04.2), `psql` for publishing migrations. Behind the
+gateway a watcher would depend on the edge and measure the wrong thing.
 1. **Own identity (R1):** hostnames `api.<product>` **and** `api-dev.<product>`, reserved
    together; its own Google Cloud project if it has social login, verified domain, policy
    and terms published.
@@ -182,7 +187,7 @@ workflows from the repository's root `.github/workflows/`, so the two files live
 - **Dependency direction:** the apps depend on Fulcrum (hostname, tenant key, the Dart
   package). **Fulcrum never depends on an app.** The contract suite imports no app code — it
   copies the adapter's real call into the assertion as text. If this repo ever needs to
-  import from `entrelares-flutter`, the design broke.
+  import from `entrelares-app`, the design broke.
 - **A change that crosses the boundary is two PRs with a mandatory order:** gateway first,
   `env.dart` second — an app never points at a hostname that does not answer yet.
 

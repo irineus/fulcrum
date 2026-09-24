@@ -25,7 +25,7 @@ An argument may have been passed (e.g. `/next-card 03.1`): treat it as the card 
 - **Card properties:** `Tarefa` (title), `Fase` (select, `"01. …"` to `"08. …"`, leading zero
   and exact accents), `Ordem` (number, decimal allowed), `Status` (`A fazer` / `Em andamento`
   / `Concluído`), `Prioridade` (`Alta`/`Média`/`Baixa`), `Repo` (`fulcrum` /
-  `entrelares-flutter` / `gestao-im360` / `desmalha` / `entrelares-console` / `externo` /
+  `entrelares-app` / `entrelares-site` / `gestao-im360` / `desmalha` / `entrelares-console` / `externo` /
   `vários`), `Tipo`, `Tamanho` (`P`/`M`/`G`/`GG`), `Notas` (text; carries `Origem:` and
   `Destrava:`), **`Portão`** (text — the objective criterion that closes the card), and
   `Concluído em` (date — in SQL and updates use `date:Concluído em:start`).
@@ -67,7 +67,7 @@ cast yields 0 everywhere, the phase names changed again.
    write it into the card before any code.
 4. **`Repo` decides where the work happens.** `fulcrum` → this repo, this skill. Any app repo
    → the card is delivered **in that repo, under that repo's conventions and skill**
-   (`next-item` for `entrelares-flutter`/`entrelares-console`; `proxima-tarefa` for
+   (`next-item` for `entrelares-app`/`entrelares-site`/`entrelares-console`; `proxima-tarefa` for
    `gestao-im360` and `desmalha`), and that skill creates the **mirror item on the app's own
    board** (Decisions §5 item 6). This board keeps the Fulcrum card; the app board keeps its
    own ID and phase. `externo` → configuration Irineu does in a console; the session
