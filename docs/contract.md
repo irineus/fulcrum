@@ -371,7 +371,7 @@ group, no group without a section.
 | §1.1 routes | `gateway` | each prefix reaches the right service; an unknown path is `404 unknown_route` |
 | §1.2 `/health` | `gateway` | `200`, the three keys, and still green when the target is unreachable |
 | §1.3 webhooks | `webhooks` | `/webhooks/<name>` reaches `/functions/v1/<name>` with no `apikey` in the request |
-| §1.4 realtime | `gateway` | the upgrade completes and the query-string key is swapped |
+| §1.4 realtime | `realtime` (`realtime.test.ts`, card 03.3.1) | the upgrade completes with the tenant key in the query string, a heartbeat is answered, and a `postgres_changes` event arrives |
 | §2.1 headers in | `rest/rls`, `rest/pagination` | the user JWT arrives untouched (RLS sees the right `auth.uid()`); `Prefer` and `Range` take effect |
 | §2.2 headers out | `rest/pagination`, `rest/error` | `Content-Range` survives pagination; the target's error string arrives byte for byte |
 | §3.2 `404` | `gateway` | a foreign `Host` is `404 unknown_tenant` |

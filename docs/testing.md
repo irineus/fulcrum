@@ -156,6 +156,32 @@ variables of §3.1), `http.ts` (the client and the two *ways* of §3.4), `gatewa
   Fulcrum never depends on an app. Bringing it back needs a way to seed a local target
   without importing the app — its own card when the need is real.
 
+**What landed next (card 03.3.1, 24/09/2026)** — groups 10–12 and realtime, in
+`functions.test.ts`, `realtime.test.ts` and `storage.test.ts`. First green run with all of
+them: [36027283096](https://github.com/irineus/fulcrum/actions/runs/36027283096) —
+Entrelares 51 passed, 3 skipped with their reasons. Nothing they do changes real data, and
+no billing event is ever sent.
+
+- **`functions`:** `public-settings` (`verify_jwt = false`) with the key alone, then
+  `If-None-Match` → `304`. *Measured:* the platform hands the ETag out weak on the `200`
+  (`W/"…"`) and strong on the `304` (`"…"`) — identically both ways, so the assertion is the
+  opaque tag plus "the gateway's `304` ETag equals the direct one". `billing-store-verify`
+  with user A's JWT and an empty claim is refused *after* the function identified her
+  (400/409); without the JWT it is the function's own `401`.
+- **`webhooks`:** no key; a wrong `?token=` and a wrong `asaas-access-token` are refused by
+  the functions themselves, equal to the direct answer. The suite cannot see what a function
+  received, so the byte-for-byte query was measured once in the production logs
+  (`function_edge_logs.request.url` identical through the gateway and directly, card
+  03.3.1); the header rides the unit test `forward.test.ts`.
+- **Realtime** (contract §1.4, not one of the twelve groups — it had no group until this
+  card): the app's channel on `care_schedules`, joined through the gateway with the tenant
+  key in the query string, a heartbeat, and the `INSERT` event of a row user A creates and
+  the test deletes. Two app rules shaped the row, both captured from the target as `23514`:
+  a day at most 24 months ahead, and `notes` must be null ("A observação do dia virou a
+  agenda") — the insert now mirrors what the app sends today.
+- **`storage`:** written as a shape and **skipped with its reason** until a tenant with a
+  bucket (Desmalha) has fixtures.
+
 **Two honest limits, written down rather than discovered later:**
 
 - **`auth/otp` needs an inbox.** Reading the code back requires mail access. The `local`
