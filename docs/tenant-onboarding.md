@@ -161,7 +161,9 @@ What the gateway needs from a target is exactly two values, and it wants nothing
 
 - an **https** base URL — `hostOf()` in `gateway/src/targets/supabase.ts` refuses any other
   scheme;
-- the target's **anon key**, the one the gateway swaps in (contract §2.1).
+- the target's **publishable key (`sb_publishable_…`)**, the one the gateway swaps in
+  (contract §2.1) — never the legacy anon JWT, which Supabase retires at the end of 2026.
+  It goes into the secret still named `TARGET_SUPABASE_ANON` (card 03.2.3).
 
 The privileged server key is not on that list and never will be (R2).
 
@@ -207,7 +209,7 @@ The secret half never enters the file:
 ```bash
 wrangler secret put TENANT_PUBLIC_KEY    --env <tenant>
 wrangler secret put TARGET_SUPABASE_URL  --env <tenant>
-wrangler secret put TARGET_SUPABASE_ANON --env <tenant>
+wrangler secret put TARGET_SUPABASE_ANON --env <tenant>   # the sb_publishable_… key
 # TARGET_NEON_URL / TARGET_NEON_ANON only from Phase 05.
 ```
 
@@ -216,9 +218,10 @@ wrangler secret put TARGET_SUPABASE_ANON --env <tenant>
 
 **The tenant key is generated, not borrowed.** `TENANT_PUBLIC_KEY` is an opaque public
 string the clients ship — `openssl rand -hex 32` is enough. It must **not** be any target's
-anon key, and that is the point: it is what stays the same when the target changes, so
-switching backends costs a variable and not an app release (Decisions §3). Reusing the
-anon key would silently couple the two and only reveal it on the day of the switch.
+key (publishable or legacy anon), and that is the point: it is what stays the same when the
+target changes, so switching backends — or retiring Supabase's legacy keys — costs a
+variable and not an app release (Decisions §3). Reusing the target's key would silently
+couple the two and only reveal it on the day of the switch.
 
 **One key per ENV, not one per tenant** (decided 09/09/2026, card 03.2). A tenant is still
 one product, but the key belongs to the *deploy*: `entrelares` and `entrelares-dev` carry

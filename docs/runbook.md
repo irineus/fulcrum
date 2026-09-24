@@ -112,7 +112,8 @@ data.
 4. Bring back what the archive does not carry (the list above): cron jobs from the app's
    migrations, Vault secrets, Edge Functions and their secrets, auth provider settings.
 5. Point the gateway at it: the tenant's `TARGET_SUPABASE_URL` and `TARGET_SUPABASE_ANON`
-   (§Deploy, *The six secret sets*). No app is published — the app carries the tenant key.
+   = the new project's **publishable key** (`sb_publishable_…`) (§Deploy, *The six secret
+   sets*). No app is published — the app carries the tenant key.
    Every user signs in again once, because the new project signs JWTs with a new secret
    (Decisions §3, the accepted consequence of switching a target).
 
@@ -192,9 +193,14 @@ repository secrets exist. Until then every push lints and tests and stops there.
    ```bash
    wrangler secret put TENANT_PUBLIC_KEY    --env <tenant>       # openssl rand -hex 32
    wrangler secret put TARGET_SUPABASE_URL  --env <tenant>
-   wrangler secret put TARGET_SUPABASE_ANON --env <tenant>
+   wrangler secret put TARGET_SUPABASE_ANON --env <tenant>       # the sb_publishable_… key
    # then again for --env <tenant>-dev, against that tenant's DEV project
    ```
+
+   `TARGET_SUPABASE_ANON` holds the project's **publishable key (`sb_publishable_…`)** —
+   *Project Settings → API Keys → Publishable key*, creating one if the project has none —
+   never the legacy anon JWT, which Supabase retires at the end of 2026 (card 03.2.3; the
+   variable kept its old name). All six were switched by Irineu on 24/09/2026.
 
    **Or from the dashboard**, which needs no local clone and no Node: the Worker >
    *Settings* > *Variables and Secrets* > **Add**, type **Secret**, all three at once, then
@@ -205,8 +211,9 @@ repository secrets exist. Until then every push lints and tests and stops there.
 
    **`TENANT_PUBLIC_KEY` is one per ENV, not one per tenant** (decided 09/09/2026): six
    values, so a dev build carrying the dev key cannot open the production gateway. It is
-   **generated**, never a target's anon key: it is what stays the same when the target
-   changes, and reusing the anon key couples the two invisibly until the day of the switch
+   **generated**, never a target's key (publishable or legacy anon): it is what stays the
+   same when the target changes, and reusing the target's key couples the two invisibly
+   until the day of the switch
    (`docs/tenant-onboarding.md` §3). The privileged server key is on none of these lists and
    never will be (R2).
 
@@ -238,19 +245,27 @@ you tell which commit is live, and a dev deploy from the same commit differs by 
 suffix.
 
 **To prove the key swap end to end** — that the tenant key is accepted, exchanged for the
-target's anon key, and that the target answers — three calls, whose *bodies* are the point:
+target's publishable key, and that the target answers — three calls, whose *bodies* are the
+point:
 
 ```bash
 curl -s https://api-dev.<product>/auth/v1/settings                          # no key
-curl -s -H "apikey: <that env's TENANT_PUBLIC_KEY>" https://api-dev.<product>/auth/v1/settings
+curl -s -H "apikey: <that env's TENANT_PUBLIC_KEY>" \
+        -H "Authorization: Bearer <that env's TENANT_PUBLIC_KEY>" \
+        https://api-dev.<product>/auth/v1/settings
 curl -s -H "apikey: wrong" https://api-dev.<product>/auth/v1/settings
 ```
 
 The first and third must answer `{"error":"invalid_tenant_key","source":"fulcrum"}` — the
 gateway refusing without touching the target. The second must answer GoTrue's real settings
-JSON. Reading the body is not optional: **both failures are 401**, and `source:"fulcrum"` is
-the only thing that separates "the gateway refused your tenant key" from "the target refused
-the anon key".
+JSON. It sends the key in **both** headers, as a client does before login: Supabase accepts
+a publishable key in `Bearer` only when it equals `apikey`, so this call is the one that
+proves the double swap (contract §2.1). Reading the body is not optional: **both failures
+are 401**, and `source:"fulcrum"` is the only thing that separates "the gateway refused
+your tenant key" from "the target refused the publishable key".
+
+For `entrelares-dev` the same three calls run as an Action, with the dev tenant key from the
+`FULCRUM_CONTRACT_ENTRELARES_TENANT_KEY` secret: `gh workflow run smoke.yml` (card 03.2.3).
 
 Do **not** smoke-test with `/rest/v1/` (card 03.2 did, and it misled for an hour):
 PostgREST's root serves the OpenAPI spec and Supabase restricts it to the privileged server

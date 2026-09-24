@@ -63,7 +63,7 @@ That is the whole reason this route is separate from `/functions/v1/*`: it is th
 place where the tenant-key check of §3.3 does not apply.
 
 `POST /webhooks/billing-webhook` on `api.<product>` forwards to
-`/functions/v1/billing-webhook` on the target, with the target's anon key injected and
+`/functions/v1/billing-webhook` on the target, with the target's publishable key injected and
 the body streamed untouched. The mapping is a **pure path rewrite** — `<name>` is the
 function's name — so the gateway carries no list of providers and no product knowledge
 (R1, R5). Which providers exist is configured in each provider's console, pointing at the
@@ -100,8 +100,8 @@ Decisions §4). The contract promises passthrough, not that every target impleme
 | Header | Fate | Rule |
 | --- | --- | --- |
 | `Host` | **consumed** | identifies the tenant and is checked against `TENANT_HOST` (§3.2). The forwarded request carries the target's host. |
-| `apikey` | **swapped** | must equal `TENANT_PUBLIC_KEY`, and is replaced by the target's anon key. Wrong or missing → `401` (§3.3). |
-| `Authorization: Bearer <tenant key>` | **swapped** | before login the clients send the same public key here. A `Bearer` whose value equals `TENANT_PUBLIC_KEY` is replaced by the target's anon key. |
+| `apikey` | **swapped** | must equal `TENANT_PUBLIC_KEY`, and is replaced by the target's publishable key (`sb_publishable_…`). Wrong or missing → `401` (§3.3). |
+| `Authorization: Bearer <tenant key>` | **swapped** | before login the clients send the same public key here. A `Bearer` whose value equals `TENANT_PUBLIC_KEY` is replaced by the target's publishable key. |
 | `Authorization: Bearer <user JWT>` | **passed** | anything else in `Bearer` is a user's token and crosses **untouched**. The gateway does not parse, validate or re-sign it — RLS judges the end user (R2). |
 | `X-Fulcrum-Target` | **consumed** | honoured only when `CANARY=true` (§4); removed from the forwarded request either way. |
 | `Prefer` | passed | `return=representation`, `resolution=merge-duplicates`, `count=exact`. |
@@ -111,6 +111,18 @@ Decisions §4). The contract promises passthrough, not that every target impleme
 | `x-upsert`, `cache-control` (Storage upload) | passed | |
 | `Origin` | read and passed | decides the CORS answer (§3.5); the target sees it too. |
 | everything else | passed | the gateway keeps an allow-nothing-special posture: it edits the four headers above and forwards the rest as received. |
+
+**The target key is the publishable key (`sb_publishable_…`), never the legacy anon JWT**
+(card 03.2.3, 24/09/2026). Supabase's legacy keys "keep working until the end of 2026";
+after that a gateway still on one stops on every host, with the error coming from the
+target. The secret keeps its historical name, `TARGET_SUPABASE_ANON` — renaming it would
+cost code and configuration for no behaviour. One Supabase rule makes the double swap
+above load-bearing: a publishable key in `Authorization: Bearer` is accepted **only when
+it equals `apikey`** — it is not a JWT — which is exactly what the swap produces before
+login (both headers carry the tenant key, both become the same publishable key). After
+login `Bearer` is the user's JWT and passes untouched. And the gain the plan did not state:
+an app behind the gateway carries the TENANT key, never the target's, so the day the
+legacy keys die is a change of one Worker secret per env, with no app published.
 
 The privileged server key is on no list here and never will be. It does not enter the
 Worker, is not a secret of any env, and a unit test greps for its name in `gateway/src/`

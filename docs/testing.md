@@ -92,7 +92,7 @@ test file never mentions a tenant:
 | --- | --- |
 | `FULCRUM_TENANT` | the tenant name the run is exercising, for skip logic and messages |
 | `FULCRUM_TENANT_KEY` | the tenant's public key — what a real app sends as `apikey` |
-| `TARGET_ANON_KEY` | the target's anon key, for the direct calls of the parity subset |
+| `TARGET_ANON_KEY` | the target's publishable key (`sb_publishable_…`), for the direct calls of the parity subset |
 | `CONTRACT_USER_A_EMAIL` / `_PASSWORD` | fixture user A (§3.3) |
 | `CONTRACT_USER_B_EMAIL` / `_PASSWORD` | fixture user B (§3.3) |
 
@@ -170,7 +170,7 @@ FULCRUM_CONTRACT_<TENANT>_USER_B_EMAIL     FULCRUM_CONTRACT_<TENANT>_USER_B_PASS
 ### 3.4 The parity subset — what also runs directly
 
 Groups 2 to 11 run twice in the matrices that have both URLs: once through `FULCRUM_URL`,
-once against `TARGET_URL` with the target's anon key. Groups 1 and 12 run only through the
+once against `TARGET_URL` with the target's publishable key. Groups 1 and 12 run only through the
 gateway, having nothing to compare against.
 
 The value is diagnostic, and it is the reason two variables are worth the trouble:
