@@ -307,6 +307,11 @@ restore check in `restore_check.yml` (card 04.2; the scripts they call live in `
 Daily dump to a dedicated R2 bucket, 30 days of retention, one prefix per tenant. This is
 what replaces the backup the Supabase Free plan does not have, and it covers either target.
 
+Only a tenant **with production** joins — a development project is rebuilt from the app's
+migrations. What it takes is two secrets (`FULCRUM_BACKUP_<TENANT>_DB_URL`, the production
+project's Session pooler string, and `FULCRUM_BACKUP_<TENANT>_PASSPHRASE`) and one matrix
+row in each workflow; the exact steps are `docs/runbook.md` §Backup → *Adding a tenant*.
+
 ---
 
 ## 8. Done — the four proofs
@@ -356,7 +361,7 @@ the card that fills it — so this table is also the inventory of what is still 
 | **5** contract fixtures | two users, two families | two users, no overlap | two accounts |
 | **5** matrix row | — (03.3) | — (03.3) | — (03.3, 05.4) |
 | **6** card + mirror item | 03.4 · `next-item` | 03.4.3 · `proxima-tarefa` | 03.4.4 · `notion-proxima-tarefa` |
-| **7** backup matrix row | — (04.2) | — (04.2) | — (04.2) |
+| **7** backup matrix row | `entrelares` (04.2) | `gestaoim360` (04.2) | — (no production yet) |
 
 ### What the dry run found
 
@@ -383,10 +388,11 @@ example of the empty case so nobody "fixes" it.
 proves the port (R4) and the first to switch target in Phase 05. Deliberate, and stated
 here because a reviewer comparing the three envs will otherwise read it as a mistake.
 
-**E. Step 7 is unexecutable for all three today.** Neither `pg_dump_r2.yml` nor
-`restore_check.yml` exists — `backup/` holds only its README. Card 04.2 writes both, at the
-repository root (the divergence recorded in `CLAUDE.md`: GitHub runs workflows only from
-the root `.github/workflows/`). Until it lands, no tenant can reach proof 4 of §8.
+**E. Step 7 was unexecutable for all three — CLOSED for the two with production.** Neither
+`pg_dump_r2.yml` nor `restore_check.yml` existed and `backup/` held only its README. Card
+04.2 (24/09/2026) wrote both, at the repository root (the divergence recorded in
+`CLAUDE.md`: GitHub runs workflows only from the root `.github/workflows/`), with Entrelares
+and Gestão IM360 in the matrix. Desmalha joins when it has production.
 
 **F. Nothing in steps 1–7 is product-specific in this repository.** The only per-tenant
 lines Fulcrum owns are the env block of step 3 and two matrix rows (steps 5 and 7) — which
