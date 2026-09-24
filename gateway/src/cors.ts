@@ -25,8 +25,55 @@ export function isPreflight(req: Request): boolean {
   );
 }
 
+/**
+ * What one `*` may stand for: characters of a single DNS label, no dot — so
+ * `pr-*.x.pages.dev` never matches `pr-1.evil.x.pages.dev`. The wildcard buys one label
+ * position, never a subtree.
+ */
+const IN_LABEL = /^[a-z0-9-]+$/;
+
+/**
+ * Why an `ALLOWED_ORIGINS` entry with a `*` is not a narrow pattern, or `null` when it is
+ * (card 03.2.1, decided by Irineu 24/09/2026). Entries without `*` are exact origins and
+ * are not judged here. A pattern exists for one reason — the per-PR previews of a dev web
+ * channel (`https://pr-<N>.entrelares-web-qa.pages.dev`), whose origin is born with the
+ * PR — and these rules keep it from growing into "any Pages site":
+ *
+ *  - exactly one `*`, in the host of an https origin;
+ *  - the `*` shares its label with fixed text (`pr-*`), never a label of its own (`*.x`);
+ *  - the fixed domain after that label has at least three labels, so it sits BELOW a
+ *    registrable domain even on a two-label public suffix (`*.pages.dev`, `*.dev` refused).
+ *
+ * Whether a pattern may appear in a given env at all (dev only) is the configuration
+ * gate's call, in test/unit/config.test.ts. At runtime a pattern with a problem simply
+ * matches nothing.
+ */
+export function patternProblem(entry: string): string | null {
+  const stars = entry.split('*').length - 1;
+  if (stars === 0) return null;
+  if (stars > 1) return 'more than one wildcard';
+  const match = /^https:\/\/([^/:]+)$/.exec(entry);
+  if (!match) return 'a pattern must be an https origin with no port or path';
+  const labels = match[1]!.split('.');
+  const wild = labels.findIndex((label) => label.includes('*'));
+  if (labels[wild] === '*') return 'the wildcard must share its label with fixed text';
+  if (labels.length - wild - 1 < 3) {
+    return 'too broad: the fixed domain after the wildcard needs three labels';
+  }
+  return null;
+}
+
+function matches(entry: string, origin: string): boolean {
+  if (!entry.includes('*')) return entry === origin;
+  if (patternProblem(entry) !== null) return false;
+  const [head, tail] = entry.split('*') as [string, string];
+  if (origin.length <= head.length + tail.length) return false;
+  if (!origin.startsWith(head) || !origin.endsWith(tail)) return false;
+  return IN_LABEL.test(origin.slice(head.length, origin.length - tail.length));
+}
+
 function allows(tenant: Tenant, origin: string | null): boolean {
-  return origin !== null && tenant.allowedOrigins.includes(origin);
+  return origin !== null && tenant.allowedOrigins.some((entry) => matches(entry, origin));
 }
 
 /** 204 with the CORS headers and no call to the target, or 403 for an origin off the list. */

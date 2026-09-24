@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { patternProblem } from '../../src/cors';
 import worker from '../../src/index';
 import { ENV, request, signedIn, stubFetch } from './helpers';
 
@@ -110,5 +111,64 @@ describe('the real request', () => {
     const stub = stubFetch();
     await worker.fetch(signedIn('/rest/v1/anything', { headers: { Origin: WEB } }), ENV);
     expect(stub.sent[0]!.headers.get('Origin')).toBe(WEB);
+  });
+});
+
+/**
+ * Suffix patterns (card 03.2.1). The Entrelares dev web channel publishes a preview per
+ * pull request at `https://pr-<N>.entrelares-web-qa.pages.dev`, an origin born with the
+ * PR, so the dev env may carry ONE narrow pattern. The `*` stands for characters of a
+ * single DNS label — never a dot — and a pattern that could grow into "any Pages site" is
+ * refused both here (it matches nothing) and by the configuration gate.
+ */
+describe('suffix pattern', () => {
+  const PREVIEWS = 'https://pr-*.entrelares-web-qa.pages.dev';
+  const dev = { ...ENV, ALLOWED_ORIGINS: `https://qa.entrelares.app,${PREVIEWS}` };
+  const status = async (origin: string, env = dev) =>
+    (await worker.fetch(preflight('/rest/v1/anything', origin), env)).status;
+
+  it('allows a per-PR preview and echoes that exact origin', async () => {
+    const res = await worker.fetch(
+      preflight('/rest/v1/anything', 'https://pr-42.entrelares-web-qa.pages.dev'),
+      dev,
+    );
+    expect(res.status).toBe(204);
+    expect(res.headers.get('Access-Control-Allow-Origin')).toBe(
+      'https://pr-42.entrelares-web-qa.pages.dev',
+    );
+  });
+
+  it.each([
+    ['a second label under the wildcard', 'https://pr-1.evil.entrelares-web-qa.pages.dev'],
+    ['an empty wildcard', 'https://pr-.entrelares-web-qa.pages.dev'],
+    ['another Pages project', 'https://pr-1.attacker.pages.dev'],
+    ['a look-alike suffix', 'https://pr-1.entrelares-web-qa.pages.dev.evil.com'],
+    ['http instead of https', 'http://pr-1.entrelares-web-qa.pages.dev'],
+    ['a port', 'https://pr-1.entrelares-web-qa.pages.dev:8443'],
+    ['a different prefix', 'https://main.entrelares-web-qa.pages.dev'],
+  ])('refuses %s', async (_why, origin) => {
+    expect(await status(origin)).toBe(403);
+  });
+
+  it.each([
+    ['https://*.pages.dev', 'a bare wildcard label'],
+    ['https://pr-*.pages.dev', 'a two-label fixed domain'],
+    ['https://pr-*.dev', 'a one-label fixed domain'],
+    ['https://pr-*.x-*.entrelares-web-qa.pages.dev', 'two wildcards'],
+    ['http://pr-*.entrelares-web-qa.pages.dev', 'http'],
+  ])('a broad pattern (%s) matches nothing at runtime', async (pattern) => {
+    const broad = { ...ENV, ALLOWED_ORIGINS: pattern };
+    expect(await status('https://pr-1.entrelares-web-qa.pages.dev', broad)).toBe(403);
+    expect(await status('https://pr-1.pages.dev', broad)).toBe(403);
+  });
+
+  it('names what is wrong with a pattern, and nothing for a narrow one or an exact origin', () => {
+    expect(patternProblem(PREVIEWS)).toBeNull();
+    expect(patternProblem('https://qa.entrelares.app')).toBeNull();
+    expect(patternProblem('https://*.pages.dev')).toMatch(/fixed text/);
+    expect(patternProblem('https://pr-*.pages.dev')).toMatch(/too broad/);
+    expect(patternProblem('https://pr-*.dev')).toMatch(/too broad/);
+    expect(patternProblem('https://a*b*.x.y.z')).toMatch(/more than one/);
+    expect(patternProblem('https://pr-*.a.b.c/path')).toMatch(/https origin/);
   });
 });

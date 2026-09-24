@@ -234,6 +234,34 @@ to authorize (R2) while stopping nobody.
 `Access-Control-Allow-Origin` echoes the matched origin, never `*` — the list is per
 tenant and the answer must be too.
 
+**Suffix patterns — dev envs only** (*decided by Irineu in card 03.2.1, 24/09/2026*). An
+entry may carry **one** `*` when an origin is born with each pull request — Entrelares'
+per-PR previews at `https://pr-<N>.entrelares-web-qa.pages.dev`, the dev web channel
+against the dev project. The pattern is `https://pr-*.entrelares-web-qa.pages.dev`, and:
+
+- the `*` stands for the characters of **one DNS label** — never a dot, so
+  `pr-1.evil.entrelares-web-qa.pages.dev` does not match;
+- the `*` shares its label with fixed text (`pr-*`) — a label that is only `*` is refused;
+- the fixed domain after it has at least three labels — `*.pages.dev`, `pr-*.pages.dev`
+  and `*.dev` are refused, because on a public suffix like `pages.dev` they mean "any
+  site anyone publishes";
+- only `https`, no port, no path; the matched origin is echoed exactly as above.
+
+A pattern that breaks a rule matches nothing at runtime (`patternProblem` in
+`gateway/src/cors.ts`), and `test/unit/config.test.ts` refuses it in `wrangler.toml`, along
+with **any** pattern in a production env and any production origin in a dev env.
+Production lists stay exact. The alternative — previews not going through the gateway —
+was dropped: a preview would then be the one web client talking to a target directly.
+
+What the dev lists name (24/09/2026): loopback (`http://localhost:8080`,
+`http://127.0.0.1:8080`) in `entrelares-dev` and `gestaoim360-dev`; plus
+`https://qa.entrelares.app` and the preview pattern in `entrelares-dev`, and
+`https://homolog.gestaoim360.com` in `gestaoim360-dev` — the hosted dev web channels that
+exist. This supersedes "dev is loopback only" (card 03.2, 08/09/2026), whose premise was
+that no hosted dev web client existed. **Side note for card 02.3:** Google accepts no
+wildcard in a JavaScript origin, so the Google sign-in button never renders on a per-PR
+preview, whatever this list says.
+
 ---
 
 ## 4. Canary — `X-Fulcrum-Target`
