@@ -92,9 +92,23 @@ export function preflight(req: Request, tenant: Tenant): Response {
   return new Response(null, { status: 204, headers });
 }
 
-/** Adds the CORS headers when the request's origin is on the tenant's list; otherwise
- * returns the response untouched, and the browser refuses to let the page read it. */
+/**
+ * The CORS answer is the gateway's alone (contract §2.2, §3.5). The target's own
+ * `Access-Control-*` headers are dropped first: Supabase answers
+ * `Access-Control-Allow-Origin: *` to any origin — measured by the contract suite's first
+ * run, 24/09/2026 — and passing it on would make the per-tenant list decorative, the
+ * platform's shared policy leaking through the product's hostname (R1).
+ */
+function dropTargetCors(res: Response): void {
+  const names = [...res.headers.keys()].filter((name) => /^access-control-/i.test(name));
+  for (const name of names) res.headers.delete(name);
+}
+
+/** Adds the CORS headers when the request's origin is on the tenant's list; otherwise the
+ * response carries none at all, and the browser refuses to let the page read it. */
 export function withCors(res: Response, req: Request, tenant: Tenant): Response {
+  // A preflight never reaches the target: its Access-Control-* are the gateway's own.
+  if (!isPreflight(req)) dropTargetCors(res);
   const origin = req.headers.get('Origin');
   if (!allows(tenant, origin) || origin === null) return res;
   res.headers.set('Access-Control-Allow-Origin', origin);

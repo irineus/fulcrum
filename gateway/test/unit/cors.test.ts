@@ -172,3 +172,47 @@ describe('suffix pattern', () => {
     expect(patternProblem('https://pr-*.a.b.c/path')).toMatch(/https origin/);
   });
 });
+
+/**
+ * The target's own CORS headers never reach the client (card 03.3). Supabase answers
+ * `Access-Control-Allow-Origin: *` to any origin — the contract suite's first run caught a
+ * foreign origin coming back through the gateway with CORS headers, against contract §3.5.
+ */
+describe("the target's CORS headers", () => {
+  const PERMISSIVE = () =>
+    new Response('target body', {
+      headers: {
+        'Access-Control-Allow-Origin': '*',
+        'access-control-allow-methods': 'GET,HEAD,PUT,PATCH,POST,DELETE,OPTIONS,TRACE,CONNECT',
+        'access-control-max-age': '3600',
+      },
+    });
+
+  it('are dropped for a foreign origin — the answer carries no CORS header at all', async () => {
+    stubFetch(PERMISSIVE);
+    const res = await worker.fetch(
+      signedIn('/rest/v1/anything', { headers: { Origin: FOREIGN } }),
+      ENV,
+    );
+    expect(res.status).toBe(200);
+    const cors = [...res.headers.keys()].filter((name) => name.startsWith('access-control-'));
+    expect(cors).toEqual([]);
+  });
+
+  it("are replaced by the gateway's own for an allowed origin", async () => {
+    stubFetch(PERMISSIVE);
+    const res = await worker.fetch(
+      signedIn('/rest/v1/anything', { headers: { Origin: WEB } }),
+      ENV,
+    );
+    expect(res.headers.get('Access-Control-Allow-Origin')).toBe(WEB);
+    expect(res.headers.get('Access-Control-Max-Age')).toBeNull();
+    expect(res.headers.get('Access-Control-Allow-Methods')).toBeNull();
+  });
+
+  it('are dropped for a native client with no Origin too — nothing is added, nothing leaks', async () => {
+    stubFetch(PERMISSIVE);
+    const res = await worker.fetch(signedIn('/rest/v1/anything'), ENV);
+    expect(res.headers.get('Access-Control-Allow-Origin')).toBeNull();
+  });
+});
