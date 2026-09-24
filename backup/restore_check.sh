@@ -13,12 +13,15 @@
 #   restore_check.sh [--file <archive>]   --file restores a local archive instead of the
 #                                         latest in R2: the local rehearsal.
 #
-# The restore is Supabase's documented one, into what it documents as the target — a new
-# project, here `supabase start`, whose GoTrue and Storage have migrated the auth and storage
-# schemas: roles.sql, schema.sql, then data.sql with triggers off (data.sql sets
-# session_replication_role itself). A bare Postgres would not do: data.sql carries
-# auth.users rows with every column today's GoTrue has, and only a migrated auth schema has
-# them all.
+# The target is a bare supabase/postgres container of the dump's major (`supabase start`
+# with every service but the database excluded). The restore is Supabase's documented one —
+# roles.sql, schema.sql, then data.sql with triggers off (data.sql sets
+# session_replication_role itself) — preceded by one step of ours: the image's own `auth`
+# and `storage` schemas are dropped and recreated from platform.sql, production's DDL. The
+# image's are whatever GoTrue and Storage versions it was built with, and the platform runs
+# newer ones: the first real check (24/09/2026) failed with 42P01 on four auth tables
+# production had and GoTrue v2.196.0 does not create. A restore into a NEW HOSTED project
+# skips that step — there the platform's own auth and storage are already current.
 #
 # Public logs: a psql error on the data step prints only its SQLSTATE (VERBOSITY=sqlstate)
 # — a COPY error otherwise quotes the offending ROW. The schema steps print terse messages,
@@ -62,7 +65,7 @@ t=$(now)
 gpg --batch --quiet --pinentry-mode loopback --passphrase-fd 3 --decrypt "$archive" 3<<<"$BACKUP_PASSPHRASE" |
   tar -C "$work" -xzf - ||
   fail "$TENANT: cannot decrypt $object — wrong passphrase or a damaged archive"
-for f in roles.sql schema.sql data.sql counts.tsv manifest.txt; do
+for f in roles.sql platform.sql schema.sql data.sql counts.tsv manifest.txt; do
   [ -f "$work/$f" ] || fail "$TENANT: $object has no $f"
 done
 t_decrypt=$(since "$t")
@@ -76,9 +79,17 @@ target_major=$(($(psql "$TARGET_DB_URL" -X -Atq -c 'show server_version_num') / 
 # ── 3. restore ──────────────────────────────────────────────────────────────────────────
 t=$(now)
 export PGOPTIONS='-c client_min_messages=warning'
+# platform.sql also carries the APP's triggers on auth tables (a trigger belongs to its
+# table's schema — `on_auth_user_created` calling public.handle_new_user() is the usual
+# one), and they name functions schema.sql has not created yet. pg_dump writes each
+# trigger on one line, so they are split off and applied after schema.sql.
+grep -v '^CREATE OR REPLACE TRIGGER ' "$work/platform.sql" >"$work/platform_objects.sql" || true
+grep '^CREATE OR REPLACE TRIGGER ' "$work/platform.sql" >"$work/platform_triggers.sql" || true
 psql "$TARGET_DB_URL" -X -q -v ON_ERROR_STOP=1 -v VERBOSITY=terse -v SHOW_CONTEXT=never \
-  --single-transaction -f "$work/roles.sql" -f "$work/schema.sql" >/dev/null ||
-  fail "$TENANT: restoring roles.sql + schema.sql failed"
+  --single-transaction -f "$work/roles.sql" \
+  -c 'drop schema if exists auth cascade' -c 'drop schema if exists storage cascade' \
+  -f "$work/platform_objects.sql" -f "$work/schema.sql" -f "$work/platform_triggers.sql" \
+  >/dev/null || fail "$TENANT: restoring roles.sql + platform.sql + schema.sql failed"
 psql "$TARGET_DB_URL" -X -q -v ON_ERROR_STOP=1 -v VERBOSITY=sqlstate -v SHOW_CONTEXT=never \
   --single-transaction -f "$work/data.sql" >/dev/null ||
   fail "$TENANT: restoring data.sql failed (SQLSTATE above; the row is never printed)"

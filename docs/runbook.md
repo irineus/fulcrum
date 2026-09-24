@@ -1,12 +1,8 @@
 # Runbook
 
-> **Two sections are still unwritten.** Two cards write into this file:
->
-> - **04.4** — the Phase 04 gate: one full restore from R2 into an ephemeral Postgres,
->   step by step, **timed**, with the date. Not "the backup is running" — the restore DONE.
-> - **08.2** — a prolonged Cloudflare incident: the "point DNS straight at the target"
->   path, and the explicitly accepted cost that the tenant key ≠ target key means that
->   scenario requires publishing an app.
+> **One section is still unwritten.** Card **08.2** writes it: a prolonged Cloudflare
+> incident — the "point DNS straight at the target" path, and the explicitly accepted cost
+> that the tenant key ≠ target key means that scenario requires publishing an app.
 
 ## Backup (card 04.2)
 
@@ -22,7 +18,10 @@ backed up, on purpose: the app's migrations rebuild them.
 It holds Supabase's documented backup, from `supabase db dump`: `roles.sql`, `schema.sql`
 (every application schema) and `data.sql` (application schemas **plus** `auth` — users and
 identities — `storage` metadata and `supabase_functions`), with `counts.tsv` (rows per table
-as written) and `manifest.txt` (Postgres major, dump time, CLI version). Encrypted with the
+as written) and `manifest.txt` (Postgres major, dump time, CLI version). Plus
+`platform.sql`, the DDL of `auth` and `storage` as production has them — including the
+app's own triggers on auth tables, which the CLI's `schema.sql` leaves out because a
+trigger belongs to its table's schema. Encrypted with the
 tenant's passphrase; the passphrases live in Irineu's password manager as
 `Fulcrum backup — <tenant> — GPG` and in the repository secrets
 `FULCRUM_BACKUP_<TENANT>_PASSPHRASE`. **Losing the passphrase loses every archive.**
@@ -54,6 +53,73 @@ It does **not** hold, and a restore into a new project must bring from elsewhere
 - **A scheduled workflow stops silently** after 60 days without a commit in the repository —
   GitHub disables it and emails once. If Fulcrum goes quiet for two months, re-enable both
   in *Actions*: for a product on the Free plan this is the only backup there is.
+
+### Restoring — the Phase 04 gate (card 04.4), timed
+
+**Measured 24/09/2026**, the first full restore of both production backups, by
+`gh workflow run restore_check.yml`
+([run 36016161596](https://github.com/irineus/fulcrum/actions/runs/36016161596)):
+
+| Tenant | End to end (job) | Target up | Fetch | Decrypt | Restore | Compare | Archive | Tables matching |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| `entrelares` | **98 s** | 88 s | 2 s | 0 s | 1 s | 0 s | 0.3 MB | 61 |
+| `gestaoim360` | **107 s** | 93 s | 3 s | 0 s | 1 s | 1 s | 0.1 MB | 69 |
+
+Almost all of it is starting the empty Postgres; the data itself restores in a second. The
+dumps were taken minutes before by `pg_dump_r2.yml`
+([run 36015876631](https://github.com/irineus/fulcrum/actions/runs/36015876631): 82 s and
+115 s). The number to carry into a real incident is not these seconds but the steps below,
+which have a person in them.
+
+**The check, as the workflow runs it** — also the way to re-time it any day:
+
+1. `gh workflow run restore_check.yml --repo irineus/fulcrum` (or *Actions → Restore check
+   → Run workflow*). One job per tenant.
+2. The job starts a bare `supabase/postgres` of the tenant's `major` (`supabase start` with
+   every service excluded but the database).
+3. It downloads the tenant's newest object in `r2://fulcrum-backups/<tenant>/`, decrypts it
+   with `FULCRUM_BACKUP_<TENANT>_PASSPHRASE` on the runner, and refuses a dump of another
+   major.
+4. `roles.sql`; then the image's `auth` and `storage` are dropped and recreated from
+   `platform.sql` (production runs a GoTrue newer than any local image — the first check
+   failed with `42P01` on four auth tables before this step existed); `schema.sql`; the
+   app's triggers on auth tables; then `data.sql` with triggers off.
+5. Row counts of every table in `counts.tsv`, compared. The log line says `restore OK`,
+   the seconds per phase and the MB — never a count.
+
+**A real restore, into a new hosted project** — what a person does when a product's
+database is lost. Never on a shared or public machine: the archive decrypts to personal
+data.
+
+1. In **that product's own Supabase account**, create a project in the same region, on
+   the same Postgres major as `manifest.txt` says.
+2. Download the newest `r2://fulcrum-backups/<tenant>/…` object (R2 dashboard → bucket
+   `fulcrum-backups` → *Download*), then:
+   ```bash
+   gpg --decrypt <tenant>-<stamp>.tar.gz.gpg | tar -xzf -   # asks for the passphrase
+   ```
+3. Restore — Supabase's documented order, with the new project's **Session pooler**
+   string; `platform.sql` is **not** applied, a hosted project's auth and storage are the
+   platform's and already current:
+   ```bash
+   psql "$NEW_DB_URL" --single-transaction -v ON_ERROR_STOP=1 \
+     -f roles.sql -f schema.sql \
+     -c 'SET session_replication_role = replica' -f data.sql
+   grep '^CREATE OR REPLACE TRIGGER ' platform.sql | psql "$NEW_DB_URL" -v ON_ERROR_STOP=1
+   ```
+   The second line brings back the app's triggers on auth tables (new sign-ups create
+   their profile rows again).
+4. Bring back what the archive does not carry (the list above): cron jobs from the app's
+   migrations, Vault secrets, Edge Functions and their secrets, auth provider settings.
+5. Point the gateway at it: the tenant's `TARGET_SUPABASE_URL` and `TARGET_SUPABASE_ANON`
+   (§Deploy, *The six secret sets*). No app is published — the app carries the tenant key.
+   Every user signs in again once, because the new project signs JWTs with a new secret
+   (Decisions §3, the accepted consequence of switching a target).
+
+**The apps' own weekly dumps** — Entrelares `.github/workflows/backup.yml` (T-19) and Gestão
+IM360 `.github/workflows/backup-semanal.yml` (card 3.11) — are **retired** now that this
+restore was timed (owner decision, 24/09/2026): one mechanism, shared, is what R1 asks for.
+Retiring them is an item on each app's own board, done there, not from this repository.
 
 ### Adding a tenant (onboarding step 7)
 

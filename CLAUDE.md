@@ -147,7 +147,7 @@ gateway/                 the Worker (TypeScript, wrangler, vitest)
 targets/neon/            Cloud Run manifests, Dockerfiles, Neon scripts (05.1–05.2)
 backup/                  pg_dump_r2.sh, restore_check.sh — what the workflows call  (04.2)
 packages/fulcrum_client/ optional pure-Dart package                       (06.1)
-docs/                    contract.md (01.5) · tenant-onboarding.md (01.6) · testing.md (01.7) · runbook.md (04.4, 08.2)
+docs/                    contract.md (01.5) · tenant-onboarding.md (01.6) · testing.md (01.7) · runbook.md (03.2, 04.2, 04.4, 08.2)
 .github/workflows/       ci.yml (01.4) · deploy (03.2) · pg_dump_r2.yml + restore_check.yml (04.2)
 .githooks/commit-msg     keeps `Backlog:` a real trailer; installed by tool/setup_env.sh
 .gitattributes           `* text=auto eol=lf` — LF on every checkout, any OS   (01.9)

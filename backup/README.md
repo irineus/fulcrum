@@ -9,8 +9,8 @@ Free plan does not have. The Phase 04 gate (card 04.4) is one full restore, time
 
 | File | What it does |
 | --- | --- |
-| `pg_dump_r2.sh` | `supabase db dump` ×3 (roles, schema, data) + `counts.tsv` + `manifest.txt` → `tar.gz` → `gpg --symmetric --cipher-algo AES256` → R2 |
-| `restore_check.sh` | latest object → decrypt → `roles.sql`, `schema.sql`, `data.sql` into an empty Supabase → row counts against `counts.tsv` |
+| `pg_dump_r2.sh` | `supabase db dump` ×4 (roles, schema, data, and `auth`+`storage` DDL as `platform.sql`) + `counts.tsv` + `manifest.txt` → `tar.gz` → `gpg --symmetric --cipher-algo AES256` → R2 |
+| `restore_check.sh` | latest object → decrypt → into a bare `supabase/postgres` of the same major: `roles.sql`, `auth`/`storage` from `platform.sql`, `schema.sql`, the app's auth triggers, `data.sql` → row counts against `counts.tsv` |
 | `common.sh` | the log vocabulary (OK/FAILED, seconds, MB) and the R2 endpoint |
 | `../.github/workflows/pg_dump_r2.yml` | daily, 05:17 UTC, one job per tenant |
 | `../.github/workflows/restore_check.yml` | monthly, the 3rd at 06:43 UTC, one job per tenant |
@@ -52,8 +52,8 @@ npx supabase@2.117.0 start
 TENANT=rehearsal DB_URL="$SOURCE_DB_URL" BACKUP_PASSPHRASE=anything \
   bash backup/pg_dump_r2.sh --no-upload /tmp/r.tar.gz.gpg
 
-# target: `supabase init` in an empty directory, `supabase start -x` everything but
-# gotrue and storage-api; its DB_URL with the user swapped for supabase_admin, exactly as
+# target: `supabase init` in an empty directory, `supabase start -x` every service (only
+# the database remains); its DB_URL with the user swapped for supabase_admin, exactly as
 # restore_check.yml derives it; then, from a Linux shell with psql and gpg:
 TENANT=rehearsal TARGET_DB_URL="$TARGET_DB_URL" BACKUP_PASSPHRASE=anything \
   bash backup/restore_check.sh --file /tmp/r.tar.gz.gpg
@@ -63,3 +63,10 @@ The local rehearsal of 24/09/2026 used the Entrelares migrations as the source (
 users, one family, text with a tab, a newline and accents): dump 20 s, restore 2 s, 60
 tables matching; a tampered `counts.tsv` failed naming only the table, and a duplicate-row
 restore printed only `ERROR: 23505`.
+
+**What the rehearsal could not catch, and production did.** A local source and a local
+target run the same GoTrue, so they agree on the auth schema by construction. Production
+does not: the first real check failed with `42P01` on four auth tables the newest local
+GoTrue does not create. That is why the archive carries `platform.sql` and the check no
+longer starts GoTrue or Storage at all — the second real check, the timed one in
+`docs/runbook.md`, passed on both tenants.

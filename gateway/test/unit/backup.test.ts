@@ -92,6 +92,16 @@ describe('backup scripts — what may reach a public log', () => {
     }
   });
 
+  it("restores auth and storage from production's DDL, never a local GoTrue's", () => {
+    // The platform runs a GoTrue ahead of every image the CLI ships: the first real check
+    // (24/09/2026) failed with 42P01 on four auth tables the local one did not create.
+    expect(read('backup/pg_dump_r2.sh')).toMatch(
+      /--schema auth,storage -f "\$work\/platform\.sql"/,
+    );
+    const start = workflowText('restore_check.yml').match(/supabase start -x (\S+)/)?.[1] ?? '';
+    expect(start.split(',')).toEqual(expect.arrayContaining(['gotrue', 'storage-api']));
+  });
+
   it('prints a restore error as its SQLSTATE, never the row', () => {
     // A COPY error quotes the offending row in its CONTEXT line.
     const restore = read('backup/restore_check.sh');

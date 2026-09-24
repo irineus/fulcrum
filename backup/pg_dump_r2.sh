@@ -24,6 +24,16 @@
 #   manifest.txt  the server's major version (the restore refuses another major), the
 #                 CLI version and the dump time.
 #
+# And one more from the CLI: platform.sql, the DDL of the `auth` and `storage` schemas
+# exactly as production has them. The documented restore does not need it — a new hosted
+# project comes with the platform's auth and storage already migrated — but the restore
+# CHECK does: its target is a bare supabase/postgres container, and the platform runs a
+# GoTrue ahead of any image a CLI ships. Measured on the first real check, 24/09/2026:
+# Entrelares production had four auth tables (mfa_recovery_code_sets, mfa_recovery_codes,
+# scim_users, scim_tokens) that GoTrue v2.196.0 — the newest the CLI starts — does not
+# create, and data.sql failed with 42P01. Carrying production's own DDL makes the check
+# independent of which GoTrue anyone has locally.
+#
 # Why count from data.sql instead of asking the source: pg_dump reads one snapshot, and a
 # count taken in another transaction would differ by whatever was written in between — a
 # check that goes red on a busy day proves nothing. Counting what was written tests the
@@ -60,6 +70,7 @@ server_major=$((server_num / 10000))
 "$SUPABASE" db dump --db-url "$DB_URL" --role-only -f "$work/roles.sql"
 "$SUPABASE" db dump --db-url "$DB_URL" -f "$work/schema.sql"
 "$SUPABASE" db dump --db-url "$DB_URL" --data-only --use-copy -f "$work/data.sql"
+"$SUPABASE" db dump --db-url "$DB_URL" --schema auth,storage -f "$work/platform.sql"
 
 # COPY blocks: `COPY "schema"."table" (cols) FROM stdin;`, one line per row — the text
 # format escapes newlines inside values — ended by `\.`. An empty table still gets a block.
@@ -74,6 +85,8 @@ awk '
 # dumps an empty file (measured by Gestão IM360: 370 bytes).
 [ "$(wc -c <"$work/schema.sql")" -ge 512 ] || fail "$TENANT: schema.sql is suspiciously small"
 [ "$(wc -c <"$work/data.sql")" -ge 512 ] || fail "$TENANT: data.sql is suspiciously small"
+grep -q '^CREATE TABLE IF NOT EXISTS "auth"\."users"' "$work/platform.sql" ||
+  fail "$TENANT: platform.sql does not define auth.users"
 [ -s "$work/counts.tsv" ] || fail "$TENANT: data.sql carries no COPY block"
 grep -q '^"auth"\."users"'$'\t' "$work/counts.tsv" ||
   fail "$TENANT: data.sql has no auth.users block — the dump would restore a product without its users"
@@ -87,7 +100,7 @@ grep -q '^"auth"\."users"'$'\t' "$work/counts.tsv" ||
 
 stamp="$(date -u +%Y-%m-%dT%H%MZ)"
 archive="$work/$TENANT-$stamp.tar.gz.gpg"
-tar -C "$work" -czf - roles.sql schema.sql data.sql counts.tsv manifest.txt |
+tar -C "$work" -czf - roles.sql platform.sql schema.sql data.sql counts.tsv manifest.txt |
   gpg --batch --yes --quiet --pinentry-mode loopback --passphrase-fd 3 \
     --symmetric --cipher-algo AES256 --compress-algo none \
     --output "$archive" 3<<<"$BACKUP_PASSPHRASE"
