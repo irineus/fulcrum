@@ -139,18 +139,24 @@ describe.skipIf(skipAll || !ENTRELARES)(
           expect(beatReply.payload.status).toBe('ok');
 
           // supabase_custody_data_source.dart:244 — insert(day.toInsertJson())
-          const day = `2099-12-${String(1 + Math.floor(Math.random() * 28)).padStart(2, '0')}`;
-          const inserted = await call(way, '/rest/v1/care_schedules', {
-            jwt,
-            body: {
-              schedule_date: day,
-              handoff_time: null,
-              scheduled_parent_id: profileId,
-              actual_parent_id: null,
-              notes: MARK,
-            },
-            headers: { Prefer: 'return=representation' },
-          });
+          // The app's own rule (captured 24/09/2026, 23514): "O calendário permite agendar
+          // no máximo 24 meses à frente." So a day ~23 months ahead, far from real use, and
+          // another one if the family already has that day (one day, one row).
+          let inserted = { status: 0, text: '' };
+          for (let attempt = 0; attempt < 5 && inserted.status !== 201; attempt++) {
+            const when = new Date(Date.now() + (690 + Math.floor(Math.random() * 20)) * 86_400_000);
+            inserted = await call(way, '/rest/v1/care_schedules', {
+              jwt,
+              body: {
+                schedule_date: when.toISOString().slice(0, 10),
+                handoff_time: null,
+                scheduled_parent_id: profileId,
+                actual_parent_id: null,
+                notes: MARK,
+              },
+              headers: { Prefer: 'return=representation' },
+            });
+          }
           expect(inserted.status, inserted.text).toBe(201);
 
           const change = await rt.next(
