@@ -4,12 +4,14 @@ name: Restore check
 # tenant's LATEST backup from R2 into an ephemeral Supabase on the runner and compare row
 # counts against what the dump wrote. A backup that was never restored is not a backup.
 #
-# The target is `supabase start` with nothing applied — Supabase documents its restore
-# into a NEW project, and this is one: GoTrue and Storage migrate the auth and storage
-# schemas the data needs, and the postgres image is the tenant's major (`major` below),
-# which the restore also checks against the dump's manifest. The restore connects as the
-# local stack's superuser: the target is thrown away with the runner, and roles.sql
-# carries platform grants the local `postgres` role may not re-grant.
+# The target is a bare supabase/postgres container of the tenant's major (`major` below,
+# checked again against the dump's manifest): `supabase start` with every service but the
+# database excluded. Its auth and storage schemas are replaced by production's own DDL
+# (platform.sql in the archive) — not by a local GoTrue and Storage, because the platform
+# runs versions newer than any the CLI ships, and the first real check (24/09/2026) failed
+# on four auth tables GoTrue v2.196.0 does not create. The restore connects as the local
+# superuser: the target is thrown away with the runner, and it has to drop and recreate
+# schemas the `postgres` role does not own.
 #
 # Same public-log rules as pg_dump_r2.yml: the archive is decrypted only on the runner,
 # nothing is uploaded, a restore error prints its SQLSTATE and never the row, and a count
@@ -51,15 +53,14 @@ jobs:
         with:
           version: 2.117.0
 
-      - name: Start an empty Supabase, Postgres ${{ matrix.major }}
+      - name: Start a bare supabase/postgres, Postgres ${{ matrix.major }}
         run: |
           started=$(date -u +%s)
           mkdir -p "$RUNNER_TEMP/target" && cd "$RUNNER_TEMP/target"
           supabase init --force < /dev/null > /dev/null
           sed -i -E 's/^major_version = .*/major_version = ${{ matrix.major }}/' supabase/config.toml
-          # Only what the restore needs: the database, and GoTrue + Storage for their
-          # schema migrations.
-          supabase start -x studio,postgres-meta,imgproxy,realtime,edge-runtime,logflare,vector,supavisor,mailpit,postgrest,kong > /dev/null
+          # The database and nothing else — auth and storage come from platform.sql.
+          supabase start -x gotrue,storage-api,studio,postgres-meta,imgproxy,realtime,edge-runtime,logflare,vector,supavisor,mailpit,postgrest,kong > /dev/null
           eval "$(supabase status -o env | grep '^DB_URL=')"
           # The same local URL with the stack's superuser in place of `postgres`.
           echo "TARGET_DB_URL=${DB_URL/\/\/postgres:/\/\/supabase_admin:}" >> "$GITHUB_ENV"
