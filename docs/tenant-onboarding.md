@@ -18,9 +18,21 @@ restates a promise, it points at the section. `docs/testing.md` owns the suite.
 ## 0. What a tenant is, before anything is configured
 
 A **tenant is a product, not an app.** It is one hostname, one target, one tenant key —
-and any number of clients that speak to it. Entrelares is one tenant with two clients (the
-Flutter app and the operator console); both carry the same `api.entrelares.app` and the
-same tenant key. Step 4 runs once per **client**; every other step runs once per **tenant**.
+and any number of clients that speak to it. Entrelares is one tenant with **three** clients:
+the Flutter app (`entrelares-app`, under `app/`), the operator console
+(`entrelares-console`) and the landing's Worker (`entrelares-site`, since 24/09/2026 —
+it reads `public-settings` server-side). All three carry the same `api.entrelares.app` and
+the same tenant key. Step 4 runs once per **client**; every other step runs once per
+**tenant**. A client with no key today (the landing Worker, Desmalha's account-deletion
+page) gets `401 invalid_tenant_key` behind the gateway: every new client sends the tenant
+key, server-side ones included.
+
+**What watches the target is not a client.** Keep-awake pings (Gestão's `worker-vigia`,
+which keeps the Free projects from pausing), the backup dumps (card 04.2) and `psql` for
+publishing migrations talk **directly** to the target, never through the gateway. A
+watcher behind the gateway would depend on the edge for its own signal and measure the
+wrong thing: a gateway outage would read as a paused project, and a keep-alive routed
+through the Worker keeps the Worker warm, not the database.
 
 Five things make a tenant, and nothing else does:
 
@@ -295,7 +307,7 @@ the `Backlog:` trailer automatically.
 
 | Repo | Board skill that writes the mirror item |
 | --- | --- |
-| `entrelares-flutter`, `entrelares-console` | `next-item` |
+| `entrelares-app`, `entrelares-site`, `entrelares-console` | `next-item` |
 | `gestao-im360` | `proxima-tarefa` |
 | `desmalha` | `notion-proxima-tarefa` |
 | `fulcrum` | `next-card` — this board only, no mirror |
@@ -344,7 +356,7 @@ the card that fills it — so this table is also the inventory of what is still 
 | **2** Supabase account | its own | its own | its own |
 | **2** target (prod) | Supabase Free | Supabase Free | Supabase Free |
 | **2** target (dev) | Supabase Free | Supabase Free (`sa-east-1`) | Supabase Free |
-| **2** migrations/functions live in | `entrelares-flutter` | `gestao-im360` | `desmalha` |
+| **2** migrations/functions live in | `entrelares-app` | `gestao-im360` | `desmalha` |
 | **3** `[env.<tenant>]` in `wrangler.toml` | `entrelares` ✓ | `gestaoim360` ✓ | `desmalha` ✓ |
 | **3** `[env.<tenant>-dev]` | `entrelares-dev` ✓ | `gestaoim360-dev` ✓ | `desmalha-dev` ✓ |
 | **3** `TENANT_HOST` | `api.entrelares.app` · `api-dev.entrelares.app` ✓ | `api.gestaoim360.com` · `api-dev.gestaoim360.com` ✓ | `api.desmalha.app` · `api-dev.desmalha.app` ✓ |
@@ -353,8 +365,8 @@ the card that fills it — so this table is also the inventory of what is still 
 | **3** `BLOCK_OAUTH_REDIRECT` | `true` | `false` | `false` |
 | **3** `CANARY` | prod `false` · dev `true` | prod `false` · dev `true` | prod `true` (see D) · dev `true` |
 | **3** secrets | — (03.2 · six sets, by hand) | — (03.2 · six sets, by hand) | — (03.2 · six sets, by hand) |
-| **4** clients | app + console (see B) | app (web + Android) | app (Android) |
-| **4** config file | `lib/env.dart` ×2 | `Ambiente` | `lib/env.dart` |
+| **4** clients | app + console + landing Worker (see B) | app (web + Android) | app (Android) |
+| **4** config file | `app/lib/env.dart` · `apps/console_app/lib/env.dart` · `wrangler.jsonc` `PARAMS_URL` (entrelares-site) | `Ambiente` | `lib/env.dart` |
 | **4** `gateway_url_test` | — (03.4, 03.4.2) | — (03.4.3) | — (03.4.4) |
 | **4** `no_supabase_outside_adapters_test` | — (04.1: 3 files; 04.1.2: 4) | — (04.1.3: 20 files) | — (04.1.4: 1 file) |
 | **4** `no_oauth_redirect_test` | — (02.3) | not applicable | not applicable |
@@ -375,10 +387,12 @@ that could not answer `404 unknown_tenant`. Both halves have landed: **card 03.1
 `TENANT_HOST` disagrees with the custom domain it is routed on — the one mistake `src/` can
 never catch, because the code is right and the configuration is wrong.
 
-**B. A tenant with two clients is normal.** Entrelares has the app and the operator console
-sharing one hostname, one target and one tenant key; the console is a second run of step 4
-(card 03.4.2) and of nothing else. This is what §0 states as a rule, and it came from
-looking at the three.
+**B. A tenant with several clients is normal.** Entrelares has the app, the operator
+console and — since 24/09/2026 — the landing's Worker sharing one hostname, one target and
+one tenant key; the console and the Worker are further runs of step 4 (cards 03.4.2 and
+03.4.5) and of nothing else. This is what §0 states as a rule, and it came from looking at
+the three. Re-measured by card 01.12 (24/09/2026), when the review of the plan against the
+apps found the third client and the renamed repository.
 
 **C. `ALLOWED_ORIGINS = ""` is a value, not a gap.** Desmalha has no web client, and empty
 means *no origin is allowed*, never *all are* (contract §3.5). Left as the one worked
