@@ -276,6 +276,26 @@ with social sign-in carries a third public value, the Web client ID of **its own
 Google project — a dev build holding the production one asks Google to mint a token for the
 wrong audience, and the target rejects it without saying so.
 
+**Before the first client points at the gateway, raise the target's per-IP Auth limits**
+(card 03.2.4). Behind the gateway every request reaches GoTrue from one address — the
+egress of every Cloudflare Worker, of any account — and GoTrue takes a forwarded address
+only with a secret key, which the gateway never holds (contract §2.1). So the per-IP limits
+of *Authentication → Rate Limits* become the product's collective limits, and the defaults
+(30 sign-ins and sign-ups, 30 token verifications, 150 token refreshes per 5 minutes) are
+one busy morning away from a `429` for everyone. On **both** projects (prod and dev),
+before the app's PR merges:
+
+1. read the product's real peaks per 5 minutes from production (sessions created,
+   sign-ups, refreshes — read-only aggregates), and look for a single session in a refresh
+   loop, which is what the largest refresh peak turned out to be on Entrelares;
+2. set sign-ins and sign-ups and token verifications with wide headroom over the real
+   peak, and token refreshes above the worst loop (Entrelares: 150 / 150 / 1800, contract
+   §2.1); leave *IP address forwarding* off — it needs the secret key;
+3. write the values and the date into contract §2.1.
+
+Gestão IM360 (03.4.3) and Desmalha (03.4.4) run this in their own cards; Desmalha's OTP
+login is the token-verification bucket.
+
 **The order is mandatory: gateway first, app second** (contract §7). An app never points at
 a hostname that does not answer yet — which is why `gateway_url_test` lands in the same PR
 as the new URL and not before it.

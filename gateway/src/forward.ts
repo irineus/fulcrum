@@ -22,6 +22,11 @@ export interface ForwardOptions {
 
 const BEARER = /^Bearer\s+(.+)$/i;
 
+/** Set by Cloudflare on every request that reaches the Worker; a client cannot forge it. */
+export const CLIENT_IP_HEADER = 'CF-Connecting-IP';
+/** The one header the target's functions read the caller's address from (contract §2.1). */
+export const FORWARDED_FOR_HEADER = 'X-Forwarded-For';
+
 /** The key the caller presented: the `apikey` header, the Realtime query parameter, or
  * the pre-login `Bearer` the clients send before they hold a user token (contract §2.1). */
 export function presentedKey(req: Request, keyInQuery: boolean): string | null {
@@ -33,9 +38,10 @@ export function presentedKey(req: Request, keyInQuery: boolean): string | null {
 
 /**
  * Builds the request the target receives. Path and query are verbatim, the body is the
- * same stream (never read — R5), and exactly four headers are touched: `Host` becomes the
- * target's, `apikey` becomes the target's anon key, a `Bearer` holding the TENANT key
- * becomes the target's anon key, and `X-Fulcrum-Target` is consumed.
+ * same stream (never read — R5), and exactly five headers are touched: `Host` becomes the
+ * target's, `apikey` becomes the target's publishable key, a `Bearer` holding the TENANT
+ * key becomes the target's publishable key, `X-Fulcrum-Target` is consumed, and
+ * `X-Forwarded-For` becomes the client's address as Cloudflare saw it (card 03.2.4).
  *
  * A `Bearer` holding anything else is a user's JWT and crosses UNTOUCHED — the gateway
  * does not parse, validate or re-sign it, because RLS judges the end user (R2).
@@ -61,6 +67,13 @@ export function forwardedRequest(
   forwarded.headers.set('apikey', target.anonKey);
   const bearer = BEARER.exec(forwarded.headers.get('Authorization') ?? '')?.[1];
   if (bearer === tenantKey) forwarded.headers.set('Authorization', `Bearer ${target.anonKey}`);
+  // Behind the gateway every request reaches the target from the Worker's egress address,
+  // so a function that limits by the first `X-Forwarded-For` would count the whole product
+  // as one client (contract §2.1). The value is REPLACED, never appended to: whatever the
+  // client sent is discarded, so the gateway opens no way to forge an address.
+  const clientIp = req.headers.get(CLIENT_IP_HEADER);
+  if (clientIp === null) forwarded.headers.delete(FORWARDED_FOR_HEADER);
+  else forwarded.headers.set(FORWARDED_FOR_HEADER, clientIp);
   return forwarded;
 }
 

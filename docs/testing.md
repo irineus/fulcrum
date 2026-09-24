@@ -333,7 +333,7 @@ the half of the contract that is decided before any target is contacted.
 | `oauth.test.ts` | the `410`, and everything next to it that is *not* blocked |
 | `cors.test.ts` | preflight allowed, preflight refused, the real request from a foreign origin, no `Origin` at all |
 | `canary.test.ts` | header honoured, ignored, unrecognised; always consumed, always reported |
-| `forward.test.ts` | the four touched headers, the untouched JWT, verbatim path and query, `redirect: 'manual'`, the webhook rewrite, and the source gate for "no body reader" |
+| `forward.test.ts` | the five touched headers (`X-Forwarded-For` replaced by `CF-Connecting-IP`, a forged one discarded — card 03.2.4), the untouched JWT, verbatim path and query, `redirect: 'manual'`, the webhook rewrite, and the source gate for "no body reader" |
 | `log.test.ts` | the six fields, the prefix instead of the path, and no key or token anywhere in a line |
 | `tenants.test.ts` | `tenantFor`, `hostMatches`, and `originOf` — https everywhere, `http` only on loopback |
 | `domain_gate.test.ts` | the anti-domain gate (§6) |
