@@ -200,8 +200,10 @@ workflows from the repository's root `.github/workflows/`, so the two files live
 cd gateway
 npm ci                 # Node ≥ 22 (the cloud image ships 22 on PATH)
 npm run lint           # tsc --noEmit + prettier --check
-npm test               # vitest: unit tests + the anti-domain gate
-npm run test:contract  # against FULCRUM_URL + TARGET_URL — empty until card 03.3
+npm test               # vitest run test/unit: unit tests + the anti-domain gate (no network)
+npm run test:contract  # the contract suite (card 03.3) — needs FULCRUM_URL, the tenant key and
+                       # the fixture users; unconfigured, every group skips with its reason.
+                       # CI: .github/workflows/contract.yml (nightly, dispatch, after merge)
 npm run dev            # wrangler dev --env entrelares-dev (local only; a session deploys nothing)
                        # Any tenant: npx wrangler dev --env <tenant>-dev. No Host header
                        # needed — `wrangler dev` builds the request URL from the env's
