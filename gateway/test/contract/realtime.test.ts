@@ -18,7 +18,7 @@ import { call, signIn, WAYS, type Way } from './http';
  *     .subscribe(...)
  *
  * and the change that fires it is `insertDay` (:244, `CareSchedule.toInsertJson()`), made
- * by user A in her own family on a far-future date, deleted at the end (and before, in
+ * by user A in her own family on a day ~23 months ahead, deleted at the end (and before, in
  * case an earlier run died between the two). Phoenix protocol vsn 1.0.0, as realtime_client
  * speaks it; heartbeat every 25 s in the app, once here.
  */
@@ -30,7 +30,10 @@ const why = !CONFIGURED
   : !HAS_USERS
     ? `tenant "${TENANT}" has no fixture users`
     : `the channel is Entrelares' adapter's; tenant "${TENANT}" brings its own when it joins the matrix`;
-const MARK = 'fulcrum-contract-realtime';
+/** The test's days: ~23 months ahead, inside the app's 24-month window, far from real use. */
+const DAY_MIN = 690;
+const DAY_SPAN = 20;
+const dayIn = (days: number) => new Date(Date.now() + days * 86_400_000).toISOString().slice(0, 10);
 
 interface Frame {
   topic: string;
@@ -90,7 +93,12 @@ describe.skipIf(skipAll || !ENTRELARES)(
       let jwt = '';
       let profileId = 0;
       const cleanup = () =>
-        call(way, `/rest/v1/care_schedules?notes=eq.${MARK}`, { method: 'DELETE', jwt });
+        // Only fixture user A's family, only the test's window of days.
+        call(
+          way,
+          `/rest/v1/care_schedules?scheduled_parent_id=eq.${profileId}&schedule_date=gte.${dayIn(DAY_MIN - 1)}&schedule_date=lte.${dayIn(DAY_MIN + DAY_SPAN + 1)}`,
+          { method: 'DELETE', jwt },
+        );
 
       beforeAll(async () => {
         const session = await signIn(way, USER_A);
@@ -144,15 +152,15 @@ describe.skipIf(skipAll || !ENTRELARES)(
           // another one if the family already has that day (one day, one row).
           let inserted = { status: 0, text: '' };
           for (let attempt = 0; attempt < 5 && inserted.status !== 201; attempt++) {
-            const when = new Date(Date.now() + (690 + Math.floor(Math.random() * 20)) * 86_400_000);
+            const when = dayIn(DAY_MIN + Math.floor(Math.random() * DAY_SPAN));
             inserted = await call(way, '/rest/v1/care_schedules', {
               jwt,
               body: {
-                schedule_date: when.toISOString().slice(0, 10),
+                schedule_date: when,
                 handoff_time: null,
                 scheduled_parent_id: profileId,
                 actual_parent_id: null,
-                notes: MARK,
+                notes: null, // captured 24/09/2026 (23514): "A observação do dia virou a agenda."
               },
               headers: { Prefer: 'return=representation' },
             });
@@ -167,8 +175,8 @@ describe.skipIf(skipAll || !ENTRELARES)(
               (f.payload.data as { table?: string }).table === 'care_schedules',
             'INSERT event',
           );
-          const record = (change.payload.data as { record: { notes: string } }).record;
-          expect(record.notes).toBe(MARK);
+          const id = (JSON.parse(inserted.text) as { id: number }[])[0]!.id;
+          expect((change.payload.data as { record: { id: number } }).record.id).toBe(id);
         } finally {
           rt.close();
         }
