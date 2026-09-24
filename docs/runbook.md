@@ -272,6 +272,19 @@ PostgREST's root serves the OpenAPI spec and Supabase restricts it to the privil
 key, so it answers `Invalid API key` even when everything is configured correctly — the one
 endpoint whose requirement R2 forbids this repository from ever satisfying.
 
+### What IP the target sees (card 03.2.2)
+
+`gh workflow run client_ip_probe.yml` makes two runners call Entrelares' public
+`public-settings` function three times directly and three times through
+`api.entrelares.app/webhooks/public-settings`, each call marked by User-Agent
+(`fulcrum-0322-<run id>-<a|b>-<direct|gateway>-<n>`). Read the IP the target recorded in the
+production project's function edge logs — Supabase dashboard *Logs → Edge Functions*, or
+the Supabase MCP with `source = 'function_edge_logs'` and the
+`request.headers.cf_connecting_ip` attribute. **Not** `edge_logs`: those rows are the
+function's own calls to its database. On 24/09/2026 every call through the gateway, from
+three networks, came out as `2a06:98c0:3600::103` (contract §2.1); card 03.2.4 re-runs this
+to prove its remedy.
+
 ### Rollback
 
 Re-run the deploy workflow on the last good commit (*Actions → Deploy → Run workflow*), or

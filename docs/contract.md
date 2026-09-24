@@ -124,6 +124,24 @@ login `Bearer` is the user's JWT and passes untouched. And the gain the plan did
 an app behind the gateway carries the TENANT key, never the target's, so the day the
 legacy keys die is a change of one Worker secret per env, with no app published.
 
+**The client's IP does not cross the gateway — measured, and not yet remedied** (card
+03.2.2, 24/09/2026). A Worker's request to another Cloudflare zone leaves with the
+Worker's egress address, and the Supabase platform sits behind Cloudflare too. Measured on
+Entrelares production with read-only GETs to its public `public-settings` function: three
+distinct clients on three networks (Porto Alegre, and two GitHub runners in Chicago and
+Virginia) were recorded by the target as themselves when calling it directly, and **all
+as one address, `2a06:98c0:3600::103` (Cloudflare, Inc.)** when calling through
+`api.entrelares.app` — through four different Cloudflare colos. So behind the gateway
+**every per-IP limit of the target counts a whole product as one client**: GoTrue's
+`sign_in_sign_ups` (30 per 5 min), `token_verifications` (30 per 5 min — Desmalha's OTP
+login), `token_refresh` (150 per 5 min), and any function that limits by
+`x-forwarded-for` (Entrelares' `send-support-request`). Adding a fifth edited header (the
+client's IP) is a change to this section and to R5's "edits four headers", and whether the
+target would honour it is itself a measurement — both belong to **card 03.2.4**, which
+decides between forwarding the IP, raising the limits per project, or accepting the risk
+with numbers. **Until it does, the gateway forwards no IP header, and no app migrates to
+the gateway** (no card 03.4.x starts). Re-measure with `gh workflow run client_ip_probe.yml`.
+
 The privileged server key is on no list here and never will be. It does not enter the
 Worker, is not a secret of any env, and a unit test greps for its name in `gateway/src/`
 and `wrangler.toml` (R2).
