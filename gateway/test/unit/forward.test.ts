@@ -24,7 +24,7 @@ const forward = (req: Request, options = {}) =>
   forwardedRequest(req, target, ENV.TENANT_PUBLIC_KEY, options);
 
 /**
- * Exactly four headers are touched (contract §2.1). The assertion that matters most is the
+ * Exactly five headers are touched (contract §2.1). The assertion that matters most is the
  * one about the JWT: it crosses UNTOUCHED, because the database enforces and the layer
  * does not authorize (R2).
  */
@@ -49,6 +49,38 @@ describe('headers on the way in', () => {
   it('consumes X-Fulcrum-Target — the target never sees it (contract §4)', () => {
     const req = signedIn('/rest/v1/anything', { headers: { 'X-Fulcrum-Target': 'neon' } });
     expect(forward(req).headers.has('X-Fulcrum-Target')).toBe(false);
+  });
+
+  it('sets X-Forwarded-For to the address Cloudflare saw the client connect from', () => {
+    const req = signedIn('/functions/v1/anything', {
+      headers: { 'CF-Connecting-IP': '203.0.113.7' },
+    });
+    expect(forward(req).headers.get('X-Forwarded-For')).toBe('203.0.113.7');
+  });
+
+  it('discards a forged X-Forwarded-For — replaced, never appended to (card 03.2.4)', () => {
+    const req = signedIn('/functions/v1/anything', {
+      headers: { 'CF-Connecting-IP': '203.0.113.7', 'X-Forwarded-For': '198.51.100.1, 10.0.0.1' },
+    });
+    expect(forward(req).headers.get('X-Forwarded-For')).toBe('203.0.113.7');
+  });
+
+  it('forwards no X-Forwarded-For at all when Cloudflare named no client', () => {
+    const req = signedIn('/functions/v1/anything', {
+      headers: { 'X-Forwarded-For': '198.51.100.1' },
+    });
+    expect(forward(req).headers.has('X-Forwarded-For')).toBe(false);
+  });
+
+  it('carries the client address on every forwarded prefix, webhooks included', async () => {
+    const stub = stubFetch();
+    const headers = { 'CF-Connecting-IP': '2001:db8::7', 'X-Forwarded-For': '198.51.100.1' };
+    await worker.fetch(signedIn('/rest/v1/anything', { headers }), ENV);
+    await worker.fetch(request('/webhooks/billing-webhook', { method: 'POST', headers }), ENV);
+    expect(stub.sent.map((r) => r.headers.get('X-Forwarded-For'))).toEqual([
+      '2001:db8::7',
+      '2001:db8::7',
+    ]);
   });
 
   it('passes everything else as received', () => {

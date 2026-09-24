@@ -282,8 +282,30 @@ production project's function edge logs — Supabase dashboard *Logs → Edge Fu
 the Supabase MCP with `source = 'function_edge_logs'` and the
 `request.headers.cf_connecting_ip` attribute. **Not** `edge_logs`: those rows are the
 function's own calls to its database. On 24/09/2026 every call through the gateway, from
-three networks, came out as `2a06:98c0:3600::103` (contract §2.1); card 03.2.4 re-runs this
-to prove its remedy.
+three networks, came out as `2a06:98c0:3600::103` (contract §2.1). The logs record
+`cf_connecting_ip` and `x_real_ip` but **not** `x_forwarded_for` (measured 24/09/2026: the
+twelve `request.headers.*` keys of `function_edge_logs` and `edge_logs`), so they show the
+Worker's address even after card 03.2.4 — the forwarded address is proved by the unit
+tests of `forward.test.ts` and by what a function that reads `X-Forwarded-For` does with it
+(Entrelares' `send-support-request` stores a keyed hash of the first entry).
+
+### A 429 from GoTrue behind the gateway (card 03.2.4)
+
+The accepted risk of contract §2.1: every user of a product reaches GoTrue from one address,
+so one refresh loop, or anyone's Worker calling the Auth API with the product's public
+publishable key, can spend the bucket everyone shares.
+
+- **Detect.** `429` on `/auth/v1/token` or `/auth/v1/otp` in the production auth logs
+  (Supabase dashboard *Logs → Auth*, or the Supabase MCP), several users at once. A single
+  user's `429` is not this; the same minute for many is.
+- **Find the spender.** Refreshes per session in the same window: one session with hundreds
+  of refreshes in 5 minutes is a client loop (Entrelares measured two, 169 and 101) — the
+  fix belongs to the app's board, a guard in the client.
+- **React.** Raise the limit in *Authentication → Rate Limits* of that project (a console
+  change, effective at once) and record the new value in contract §2.1. **Last resort:**
+  point the web client's `env.dart` back at the target directly (one PR in the app; the
+  Android build cannot be reverted that fast) — a direct client is counted by its own
+  address again.
 
 ### Rollback
 

@@ -78,7 +78,10 @@ execute and close a card.
   which is what the double swap produces; the secret keeps its old name
   `TARGET_SUPABASE_ANON`, card 03.2.3);
   `Authorization: Bearer <user JWT>` passes untouched; `X-Fulcrum-Target` selects the target
-  only when `CANARY=true` (consumed); `Prefer`, `Range`, `Accept-Profile` pass. On the way
+  only when `CANARY=true` (consumed); `X-Forwarded-For` is replaced by the incoming
+  `CF-Connecting-IP`, a client-sent one discarded (card 03.2.4 — GoTrue ignores it without
+  a secret key, so its per-IP limits are raised per project instead, onboarding step 4);
+  `Prefer`, `Range`, `Accept-Profile` pass. On the way
   back `Content-Range` and the body pass with no cache; CORS and an informational
   `X-Fulcrum-Target` are added.
 - **Per-env vars:** `TENANT`, `TENANT_HOST`, `TARGET=supabase|neon`, `CANARY`,

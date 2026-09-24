@@ -110,7 +110,8 @@ Decisions §4). The contract promises passthrough, not that every target impleme
 | `Content-Type`, `Accept`, `Accept-Encoding` | passed | |
 | `x-upsert`, `cache-control` (Storage upload) | passed | |
 | `Origin` | read and passed | decides the CORS answer (§3.5); the target sees it too. |
-| everything else | passed | the gateway keeps an allow-nothing-special posture: it edits the four headers above and forwards the rest as received. |
+| `X-Forwarded-For` | **replaced** | set to the incoming `CF-Connecting-IP` — the address Cloudflare saw the client connect from. Whatever the client sent is discarded, never appended to; with no `CF-Connecting-IP`, the header is dropped (card 03.2.4). |
+| everything else | passed | the gateway keeps an allow-nothing-special posture: it edits the five headers above and forwards the rest as received. |
 
 **The target key is the publishable key (`sb_publishable_…`), never the legacy anon JWT**
 (card 03.2.3, 24/09/2026). Supabase's legacy keys "keep working until the end of 2026";
@@ -124,23 +125,56 @@ login `Bearer` is the user's JWT and passes untouched. And the gain the plan did
 an app behind the gateway carries the TENANT key, never the target's, so the day the
 legacy keys die is a change of one Worker secret per env, with no app published.
 
-**The client's IP does not cross the gateway — measured, and not yet remedied** (card
-03.2.2, 24/09/2026). A Worker's request to another Cloudflare zone leaves with the
-Worker's egress address, and the Supabase platform sits behind Cloudflare too. Measured on
-Entrelares production with read-only GETs to its public `public-settings` function: three
+**The client's IP behind the gateway — measured, remedied where it can be, the rest an
+accepted risk** (card 03.2.2 measured it; card 03.2.4 decided and shipped the remedy,
+24/09/2026).
+
+*What was measured (03.2.2).* A Worker's request to another Cloudflare zone leaves with the
+Worker's egress address, and the Supabase platform sits behind Cloudflare too. On
+Entrelares production, read-only GETs to its public `public-settings` function from three
 distinct clients on three networks (Porto Alegre, and two GitHub runners in Chicago and
-Virginia) were recorded by the target as themselves when calling it directly, and **all
-as one address, `2a06:98c0:3600::103` (Cloudflare, Inc.)** when calling through
-`api.entrelares.app` — through four different Cloudflare colos. So behind the gateway
-**every per-IP limit of the target counts a whole product as one client**: GoTrue's
-`sign_in_sign_ups` (30 per 5 min), `token_verifications` (30 per 5 min — Desmalha's OTP
-login), `token_refresh` (150 per 5 min), and any function that limits by
-`x-forwarded-for` (Entrelares' `send-support-request`). Adding a fifth edited header (the
-client's IP) is a change to this section and to R5's "edits four headers", and whether the
-target would honour it is itself a measurement — both belong to **card 03.2.4**, which
-decides between forwarding the IP, raising the limits per project, or accepting the risk
-with numbers. **Until it does, the gateway forwards no IP header, and no app migrates to
-the gateway** (no card 03.4.x starts). Re-measure with `gh workflow run client_ip_probe.yml`.
+Virginia) were recorded as themselves when calling directly, and **all as one address,
+`2a06:98c0:3600::103` (Cloudflare, Inc.)** through `api.entrelares.app` — through four
+different Cloudflare colos. That address is the egress of **every** Worker subrequest, of
+**any** Cloudflare account: the landing's own Worker, calling `public-settings` directly,
+shows up as the same address. So behind the gateway every per-IP limit of the target counts
+a whole product — and anyone with a free Worker — as one client.
+
+*Why the gateway cannot give GoTrue the address back.* Supabase's documentation (*Auth →
+Rate limits → IP address forwarding*, read 24/09/2026) says GoTrue uses a forwarded address
+only from the `Sb-Forwarded-For` header, only with the feature enabled on the project, and
+only when the request uses a **secret** key: "Publishable API keys and legacy
+`anon`/`service_role` API keys are not supported." A secret key in the Worker is exactly
+what R2 forbids — and it would open `/auth/v1/admin/*` to anyone who reached the gateway.
+GoTrue's per-IP limits therefore stay collective behind the gateway, for good.
+
+*The remedy, in two halves.*
+
+1. **Functions get the client's address.** The gateway sets `X-Forwarded-For` to the
+   incoming `CF-Connecting-IP` (the fifth edited header, table above), discarding any
+   value the client sent. A function that limits by the first `x-forwarded-for`
+   (Entrelares' `send-support-request`) sees the person, not the Worker. The gateway opens
+   no new forgery: a client calling the target directly can already set the first
+   `X-Forwarded-For` itself, and through the gateway it no longer can.
+2. **GoTrue's per-IP limits are raised per project, before an app points at the gateway**
+   (onboarding step 4). Entrelares, prod and dev, set by Irineu on 24/09/2026
+   (*Authentication → Rate Limits*, per 5 minutes, *IP address forwarding* left off):
+
+   | Limit | Supabase default | Entrelares | Why that number |
+   | --- | --- | --- | --- |
+   | sign-ups and sign-ins | 30 | **150** | 30× the real peak (5 sign-ins and 1 sign-up per 5 min, last 30 days) |
+   | token verifications | 30 | **150** | same headroom — the OTP and magic-link path |
+   | token refreshes | 150 | **1800** | 10× the worst loop measured (169 refreshes in 5 min, from ONE session) |
+
+   The usage numbers are read-only aggregates of Entrelares production, 30 days to
+   24/09/2026: ~20 active users, ordinary refreshes up to ~22 per 5 min; the two largest
+   refresh peaks (169 and 101) each came from a single session stuck in a refresh loop.
+
+*The accepted risk (Decisions §3).* Any Worker of any account, or one session in a refresh
+loop, can spend the bucket every user of the product shares, and then sign-in and refresh
+answer `429` for everyone. Detection is `429` in the production auth logs; the reaction is
+in `docs/runbook.md` (*A 429 from GoTrue behind the gateway*). Re-measure the address the
+target sees with `gh workflow run client_ip_probe.yml`.
 
 The privileged server key is on no list here and never will be. It does not enter the
 Worker, is not a secret of any env, and a unit test greps for its name in `gateway/src/`
@@ -338,7 +372,9 @@ by 159 policies.
 - **No cache.** Not of `/rest`, not of anything. No Cache API, no KV, no conditional
   request of its own.
 - **No body inspection or rewriting.** Requests and responses stream. The gateway cannot
-  tell you what is in a payload because it never looks.
+  tell you what is in a payload because it never looks. It edits exactly five request
+  headers (§2.1) — the fifth, `X-Forwarded-For`, only restores what the gateway itself
+  hid (card 03.2.4) — and nothing else of a request.
 - **No convenience endpoints, no aggregation, no "one call instead of three".** Two round
   trips that the app makes today stay two round trips.
 - **No authorization.** No role, no ownership, no tenant-scoped filter, no `if`. RLS
