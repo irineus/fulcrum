@@ -122,7 +122,39 @@ total (contract §6): no section without a group, no group without a section. Ad
 promise means adding to both.
 
 Card 03.3 lands groups 1 to 9 against `supabase-dev` — its gate names exactly those.
-Groups 10, 11 and 12 follow with the routes they exercise.
+Groups 10, 11 and 12 follow with the routes they exercise (card 03.3.1, with realtime).
+
+**What landed (card 03.3, 24/09/2026).** `gateway/test/contract/`: `env.ts` (the flat
+variables of §3.1), `http.ts` (the client and the two *ways* of §3.4), `gateway.test.ts`
+(group 1), `auth.test.ts` (groups 2–4), `rest.test.ts` (groups 5–9); the workflow is
+`.github/workflows/contract.yml`. First green `supabase-dev` run for Entrelares:
+[36025413348](https://github.com/irineus/fulcrum/actions/runs/36025413348) — 36 passed,
+2 skipped with their reasons. Facts that shaped it:
+
+- **Only Entrelares has fixtures.** Gestão IM360 and Desmalha skip, green, with a notice,
+  until their migration cards bring two users and six secrets (§4.2). The `rest` calls are
+  Entrelares' adapter's (`supabase_custody_data_source.dart`), so for another tenant that
+  block reports skipped with the reason, never vanishes.
+- **Skipped, with the reason on the test:** `404 unknown_tenant` (unreachable from the
+  internet — the edge refuses a Host/SNI mismatch; evidence is the unit test and
+  `wrangler dev`); `auth/otp` for a tenant whose app does not sign in by OTP (Entrelares);
+  the 410 and CORS assertions where the env has them switched off.
+- **`auth/id_token`** asserts the contract (§3.4): a bad token is GoTrue's `400`, byte for
+  byte equal through the gateway and directly. Its adapter is card 02.3's, not written yet.
+- **`rest/rpc`** calls `set_member_admin` with profile `-1` as user A (a family admin with
+  no sudo window): the function raises `ELEVATION_REQUIRED:` before any write, and the id
+  exists nowhere — nothing can change. The string is captured, and equal both ways.
+- **`rest/rls`** writes B's *current* name as A: a broken policy would still change
+  nothing visible, and the row count (`[]`) is what proves the isolation.
+- **The first run found a gateway bug:** Supabase answers `Access-Control-Allow-Origin: *`
+  and the gateway passed it on, so a foreign origin got CORS headers (contract §3.5). The
+  gateway now drops the target's `Access-Control-*`; `cors.test.ts` pins it.
+- **`npm test` is the unit lane only** (`vitest run test/unit`); `npm run test:contract`
+  is the suite, and unconfigured it skips every group with its reason.
+- **`local` reports skipped** (divergence from §4's table, recorded here): a local target
+  needs the tenant's schema and its fixture users, which live in the app's repository, and
+  Fulcrum never depends on an app. Bringing it back needs a way to seed a local target
+  without importing the app — its own card when the need is real.
 
 **Two honest limits, written down rather than discovered later:**
 
@@ -196,7 +228,7 @@ Latency is **not** measured here. The `+20 ms` p95 comparison is the Phase 03 ga
 | --- | --- | --- | --- | --- |
 | `supabase-dev` | that tenant's dev deploy, `api-dev.<product>` | that tenant's dev Supabase project | yes | card 03.3 |
 | `neon-dev` | the same dev deploy, pinned with `X-Fulcrum-Target: neon` | the alternative target's URL | yes | card 05.4 |
-| `local` | `wrangler dev --env <tenant>-dev` on loopback | `supabase start` on loopback | no | card 03.3 |
+| `local` | `wrangler dev --env <tenant>-dev` on loopback | `supabase start` on loopback | no | skipped since card 03.3 — see §3.2 |
 
 **Every cell above is per tenant, which is why the matrices have a tenant axis at all.**
 Card 03.2 gives each tenant its own dev deploy (`[env.<tenant>-dev]` behind

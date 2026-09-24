@@ -255,6 +255,14 @@ client** (Desmalha today), not "allow everything".
   list, the response carries `Access-Control-Allow-Origin` for it; if not, it carries no
   CORS headers and the browser refuses to let the page read the answer.
 - **No `Origin` at all** (every native client): nothing applies, nothing is added.
+- **The target's own CORS headers never pass.** Supabase answers
+  `Access-Control-Allow-Origin: *` to any origin, and until card 03.3 the gateway
+  forwarded it — the contract suite's first run caught a foreign origin coming back *with*
+  CORS headers, against the line above. Every `Access-Control-*` of a target's response is
+  dropped before the gateway adds its own (a preflight never reaches the target, so its
+  headers are the gateway's alone). No browser could exploit the old behaviour — every real
+  request carries `apikey`, so it is preflighted, and the preflight was already refused —
+  but a promise that holds only because of a second one is not the promise written here.
 
 *Decided in card 01.5:* the browser is the enforcement point, which is what CORS is.
 Rejecting real requests by `Origin` was considered and dropped: `Origin` is trivially
