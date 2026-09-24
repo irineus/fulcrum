@@ -1,0 +1,77 @@
+name: Backup
+
+# Card 04.2 — every day, each tenant's PRODUCTION database → one encrypted object in R2.
+#
+# It is the backup the Supabase Free plan does not have, and since 08/09/2026 the only way
+# a product that bills can stay on Free (Decisions §4). The scripts it calls live in
+# backup/ (GitHub only runs workflows from the root .github/workflows/ — CLAUDE.md).
+#
+# THE REPOSITORY IS PUBLIC, SO THIS LOG IS PUBLIC. The rules this file and backup/ keep,
+# gated by gateway/test/unit/backup.test.ts:
+#   - the dump is encrypted (GPG symmetric, AES-256, one passphrase per tenant) before it
+#     leaves the runner, and the plaintext is deleted with the working directory;
+#   - no log line carries data, a per-table count or a user total — OK/FAILED, seconds, MB;
+#   - no actions/upload-artifact, ever: an artifact of a public repository is public;
+#   - triggers are schedule and workflow_dispatch only — never push or pull_request, which
+#     would run production credentials from any branch.
+#
+# One set of secrets per tenant, because there is no single login that sees every
+# product's project (Decisions §4): FULCRUM_BACKUP_<TENANT>_DB_URL (Session pooler, user
+# postgres — a database connection string, never an account token) and
+# FULCRUM_BACKUP_<TENANT>_PASSPHRASE. The R2 token is one, scoped to the bucket.
+#
+# Retention is the bucket's, not this file's: `fulcrum-backups` expires objects after 30
+# days, so a failing run can never delete a good copy. Development projects are out on
+# purpose — the app's migrations rebuild them (card 04.2, 08/09/2026).
+
+on:
+  schedule:
+    # 05:17 UTC = 02:17 in São Paulo. Minute 17, not 00: GitHub's scheduler contends the
+    # top of the hour and has skipped runs there (Entrelares' backup, 27/07/2026).
+    - cron: "17 5 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: backup
+  cancel-in-progress: false
+
+jobs:
+  dump:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        # A tenant with production. Desmalha joins the day it has one (onboarding step 7).
+        include:
+          - tenant: entrelares
+            secret: ENTRELARES
+          - tenant: gestaoim360
+            secret: GESTAOIM360
+    steps:
+      - uses: actions/checkout@v4
+
+      # `supabase db dump` is pg_dump inside the supabase/postgres image, so the dump is
+      # taken by the server's own major (17) — the runner's pg_dump 16 refuses a 17 server.
+      - uses: supabase/setup-cli@v1
+        with:
+          version: 2.117.0
+
+      - name: Dump, encrypt and upload — ${{ matrix.tenant }}
+        env:
+          TENANT: ${{ matrix.tenant }}
+          DB_URL: ${{ secrets[format('FULCRUM_BACKUP_{0}_DB_URL', matrix.secret)] }}
+          BACKUP_PASSPHRASE: ${{ secrets[format('FULCRUM_BACKUP_{0}_PASSPHRASE', matrix.secret)] }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          AWS_ACCESS_KEY_ID: ${{ secrets.FULCRUM_BACKUP_R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.FULCRUM_BACKUP_R2_SECRET_ACCESS_KEY }}
+        run: |
+          {
+            echo "## Backup — $TENANT"
+            echo "| tenant | result | duration | size | server | object |"
+            echo "| --- | --- | --- | --- | --- | --- |"
+          } >> "$GITHUB_STEP_SUMMARY"
+          bash backup/pg_dump_r2.sh

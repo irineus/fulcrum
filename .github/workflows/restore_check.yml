@@ -1,0 +1,81 @@
+name: Restore check
+
+# Card 04.2 (monthly) and 04.4 (the timed restore that is the Phase 04 gate): restore each
+# tenant's LATEST backup from R2 into an ephemeral Supabase on the runner and compare row
+# counts against what the dump wrote. A backup that was never restored is not a backup.
+#
+# The target is `supabase start` with nothing applied — Supabase documents its restore
+# into a NEW project, and this is one: GoTrue and Storage migrate the auth and storage
+# schemas the data needs, and the postgres image is the tenant's major (`major` below),
+# which the restore also checks against the dump's manifest. The restore connects as the
+# local stack's superuser: the target is thrown away with the runner, and roles.sql
+# carries platform grants the local `postgres` role may not re-grant.
+#
+# Same public-log rules as pg_dump_r2.yml: the archive is decrypted only on the runner,
+# nothing is uploaded, a restore error prints its SQLSTATE and never the row, and a count
+# mismatch names the table and never a number. The duration is the point of the log.
+
+on:
+  schedule:
+    # The 3rd of every month, 06:43 UTC — after that day's backup (05:17), off the hour.
+    - cron: "43 6 3 * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: restore-check
+  cancel-in-progress: false
+
+jobs:
+  restore:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # `major` = the production project's Postgres major, measured 24/09/2026
+          # (`show server_version` = 17.6 on both). A project upgrade moves it here.
+          - tenant: entrelares
+            secret: ENTRELARES
+            major: 17
+          - tenant: gestaoim360
+            secret: GESTAOIM360
+            major: 17
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: supabase/setup-cli@v1
+        with:
+          version: 2.117.0
+
+      - name: Start an empty Supabase, Postgres ${{ matrix.major }}
+        run: |
+          started=$(date -u +%s)
+          mkdir -p "$RUNNER_TEMP/target" && cd "$RUNNER_TEMP/target"
+          supabase init --force < /dev/null > /dev/null
+          sed -i -E 's/^major_version = .*/major_version = ${{ matrix.major }}/' supabase/config.toml
+          # Only what the restore needs: the database, and GoTrue + Storage for their
+          # schema migrations.
+          supabase start -x studio,postgres-meta,imgproxy,realtime,edge-runtime,logflare,vector,supavisor,mailpit,postgrest,kong > /dev/null
+          eval "$(supabase status -o env | grep '^DB_URL=')"
+          # The same local URL with the stack's superuser in place of `postgres`.
+          echo "TARGET_DB_URL=${DB_URL/\/\/postgres:/\/\/supabase_admin:}" >> "$GITHUB_ENV"
+          echo "target up in $(( $(date -u +%s) - started ))s"
+
+      - name: Restore and compare — ${{ matrix.tenant }}
+        env:
+          TENANT: ${{ matrix.tenant }}
+          BACKUP_PASSPHRASE: ${{ secrets[format('FULCRUM_BACKUP_{0}_PASSPHRASE', matrix.secret)] }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          AWS_ACCESS_KEY_ID: ${{ secrets.FULCRUM_BACKUP_R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.FULCRUM_BACKUP_R2_SECRET_ACCESS_KEY }}
+        run: |
+          {
+            echo "## Restore check — $TENANT"
+            echo "| tenant | result | duration | size | dump taken | phases |"
+            echo "| --- | --- | --- | --- | --- | --- |"
+          } >> "$GITHUB_STEP_SUMMARY"
+          bash backup/restore_check.sh

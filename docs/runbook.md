@@ -8,6 +8,65 @@
 >   path, and the explicitly accepted cost that the tenant key ≠ target key means that
 >   scenario requires publishing an app.
 
+## Backup (card 04.2)
+
+Each tenant with production (`entrelares`, `gestaoim360`) is dumped **daily at 05:17 UTC**
+by `.github/workflows/pg_dump_r2.yml` into `r2://fulcrum-backups/<tenant>/<tenant>-<UTC
+timestamp>.tar.gz.gpg`, and **restored on the 3rd of every month at 06:43 UTC** by
+`restore_check.yml` into an ephemeral Supabase on the runner, row counts compared. The
+scripts and the public-log rules are in `backup/README.md`. Development projects are not
+backed up, on purpose: the app's migrations rebuild them.
+
+### What an archive holds, and what it does not
+
+It holds Supabase's documented backup, from `supabase db dump`: `roles.sql`, `schema.sql`
+(every application schema) and `data.sql` (application schemas **plus** `auth` — users and
+identities — `storage` metadata and `supabase_functions`), with `counts.tsv` (rows per table
+as written) and `manifest.txt` (Postgres major, dump time, CLI version). Encrypted with the
+tenant's passphrase; the passphrases live in Irineu's password manager as
+`Fulcrum backup — <tenant> — GPG` and in the repository secrets
+`FULCRUM_BACKUP_<TENANT>_PASSPHRASE`. **Losing the passphrase loses every archive.**
+
+It does **not** hold, and a restore into a new project must bring from elsewhere:
+
+- **`pg_cron` jobs** — measured in the rehearsal: `cron.job` is not in the data dump. They
+  are created by the app's migrations (`cron.schedule`), so they come back by re-running
+  those statements from the app repository. It is also why a restore check never fires a
+  job: the ephemeral target has none.
+- **Vault secrets** (`vault` is excluded by the CLI) — re-create them from the app's own
+  secret store.
+- **Edge Functions and their secrets**, **auth provider settings** (Google client IDs,
+  SMTP, hooks) — project configuration, not database; they live in the app repository and
+  the provider consoles.
+- **Storage object bytes** — only their metadata rows. No tenant with production stores
+  files today; Desmalha will, and its bucket needs its own answer before it has production.
+
+### Reading a red run
+
+- **Backup red:** the backup did not happen **and** the project may be paused (Free plan) —
+  check that product's Supabase dashboard before anything else. The job fails naming the
+  step; it never prints a row.
+- **Restore check red:** `restore FAILED — row counts differ in: <tables>` means the archive
+  restores but not whole; a `SQLSTATE` on `data.sql` means a row was refused (`23505`
+  duplicate; `42703` a column the target's GoTrue does not have yet — bump the pinned CLI).
+  `the dump is Postgres N and the restore target is Postgres M` means the project was
+  upgraded: move `major` in `restore_check.yml`.
+- **A scheduled workflow stops silently** after 60 days without a commit in the repository —
+  GitHub disables it and emails once. If Fulcrum goes quiet for two months, re-enable both
+  in *Actions*: for a product on the Free plan this is the only backup there is.
+
+### Adding a tenant (onboarding step 7)
+
+1. Two repository secrets: `FULCRUM_BACKUP_<TENANT>_DB_URL` (the **Session pooler**
+   connection string of the production project, user `postgres` — *Connect → Session
+   pooler* in the dashboard) and `FULCRUM_BACKUP_<TENANT>_PASSPHRASE` (a new one, never
+   another tenant's, saved in the password manager first).
+2. One `include` row in **both** workflows — `tenant`, `secret` (the upper-case name) and,
+   in `restore_check.yml`, `major` (`show server_version` on that project). The gate in
+   `backup.test.ts` lists the tenants too, on purpose: adding one is a reviewed change.
+3. `gh workflow run pg_dump_r2.yml`, then `gh workflow run restore_check.yml` — the tenant's
+   prefix in R2 is proof 4 of the onboarding.
+
 ## Deploy (card 03.2)
 
 **Nothing is deployed from a session.** `wrangler deploy` and `wrangler secret put` are
