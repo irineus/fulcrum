@@ -31,7 +31,12 @@ It does **not** hold, and a restore into a new project must bring from elsewhere
 - **`pg_cron` jobs** — measured in the rehearsal: `cron.job` is not in the data dump. They
   are created by the app's migrations (`cron.schedule`), so they come back by re-running
   those statements from the app repository. It is also why a restore check never fires a
-  job: the ephemeral target has none.
+  job: the ephemeral target has none. **Entrelares: every job, without exception** —
+  `auto-approve-expired-hourly` and `purge-deleted-daily`, created by hand in the
+  Dashboard until 25/09/2026, are born in the migration
+  `20260925110000_fulcrum_0421_dashboard_crons.sql` since card 04.2.1 (entrelares-app
+  #287). The rule for every tenant: a job made in a Dashboard is one a restore loses in
+  silence — it belongs in a migration, reading its URL and key from Vault.
 - **Vault secrets** (`vault` is excluded by the CLI) — re-create them from the app's own
   secret store.
 - **Edge Functions and their secrets**, **auth provider settings** (Google client IDs,
