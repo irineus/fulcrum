@@ -331,3 +331,56 @@ custom domain, not from the `Host` it receives, so the `TENANT_HOST` check passe
 Measured in card 03.2 — with a config whose route and `TENANT_HOST` disagree, the same
 local server answers `404 unknown_tenant`, which is the check being alive rather than
 bypassed.
+
+## Monitor (card 08.1)
+
+`.github/workflows/monitor.yml` runs every 5 minutes (GitHub's minimum, off the top of the
+hour; the scheduler sometimes runs late — the measure is "no red run", not "a run every
+5:00"). GitHub is not Cloudflare, so whoever watches stays outside the thing watched.
+
+| Probe | Proves | Expects |
+|---|---|---|
+| `https://api.entrelares.app/health` | the Worker answers with that tenant's env | `200` + `.tenant == "entrelares"` |
+| `https://api.gestaoim360.com/health` | idem | `200` + `.tenant == "gestaoim360"` |
+| `https://api.desmalha.app/health` | idem | `200` + `.tenant == "desmalha"` |
+| `https://api.entrelares.app/auth/v1/settings`, tenant key in `apikey` and `Bearer` | the whole path: key check, key swap, GoTrue answering | `200` + GoTrue's settings |
+
+The fourth needs the repository **variable** `FULCRUM_MONITOR_ENTRELARES_KEY` (the production
+`TENANT_PUBLIC_KEY` of `entrelares` — public by design, a variable and not a secret so the
+monitor can never be handed anything privileged); without it the run says so in a notice and
+probes `/health` only. Gestão and Desmalha get the same probe the day a client of theirs is
+behind the gateway (03.4.3, 03.4.4). A failing probe is retried once after 10 s.
+
+The log is public: host, path, status and time, never the key and never a body.
+`test/unit/monitor.test.ts` holds that, the list of hosts (every production `TENANT_HOST`
+of `wrangler.toml` must be probed) and the one-issue rule.
+
+### When the issue arrives
+
+A failure opens **one** issue labelled `monitor` (or comments the open one) with each
+failing `host/path → status`; GitHub e-mails the owner for both. The next all-green run
+comments the recovery and closes it. Reading the status:
+
+| Status | Where | Most likely | First look |
+|---|---|---|---|
+| `000` on every host | all | GitHub's network, or Cloudflare itself | [cloudflarestatus.com](https://www.cloudflarestatus.com); re-run the workflow. Cloudflare down for long: §Prolonged Cloudflare incident (card 08.2) |
+| `000`/`5xx` on one host's `/health` | one tenant | that env's deploy or its custom domain | `curl.exe -s https://api.<product>/health`; the last Deploy run; the domain in the Cloudflare dashboard |
+| `404` with `unknown_tenant` | `/health` | `TENANT_HOST` ≠ the route | `wrangler.toml` and the last deploy |
+| `200` on `/health`, `401` on `/auth/v1/settings` | Entrelares | the tenant key rotated and the variable did not follow | the variable against the env's `TENANT_PUBLIC_KEY` |
+| `200` on `/health`, `5xx`/`000` on `/auth/v1/settings` | Entrelares | the **target** (Supabase) is down, the gateway is fine | [status.supabase.com](https://status.supabase.com) and the prod project's logs |
+
+`/health` never touches the target, so "health green, settings red" always reads "gateway up,
+target down" (§Checking a deploy).
+
+### Evidence and upkeep
+
+- **The 7 days of card 03.6** are this workflow's history:
+  `gh run list --repo irineus/fulcrum --workflow monitor.yml --limit 100` (and the Actions
+  tab filtered by *Monitor*).
+- **Testing the alert:** *Actions → Monitor → Run workflow* with `drill` checked adds a
+  probe of `/monitor-drill`, which answers the gateway's own `404 unknown_route`; the run
+  goes red and opens the issue, and the next scheduled run closes it. Done once on purpose
+  by card 08.1.
+- **GitHub disables a scheduled workflow after 60 days without activity in a public
+  repository**, with an e-mail. A quiet Fulcrum is exactly that — re-enable it on the
+  Actions tab (*Monitor → Enable workflow*) or with `gh workflow enable monitor.yml`.

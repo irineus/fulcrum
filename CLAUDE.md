@@ -153,7 +153,8 @@ gateway/                 the Worker (TypeScript, wrangler, vitest)
   src/routes/*.ts        auth rest functions storage realtime webhooks health   (03.1)
   src/targets/*.ts       supabase.ts neon.ts — origin + publishable key    (01.4, 03.1)
   test/unit/             core, forward, cors, canary, log, anti-domain, config, eol,
-                         dependency-pin, backup gates  (01.4, 03.1, 03.2, 01.9, 01.10, 04.2)
+                         dependency-pin, backup, monitor gates  (01.4, 03.1, 03.2, 01.9,
+                         01.10, 04.2, 08.1)
   test/contract/         runs against TARGET_URL — any target            (03.3, 05.4)
   wrangler.toml          [env.<tenant>] + [env.<tenant>-dev], three tenants each  (03.2)
 targets/neon/            Cloud Run manifests, Dockerfiles, Neon scripts (05.1–05.2)
@@ -161,6 +162,7 @@ backup/                  pg_dump_r2.sh, restore_check.sh — what the workflows 
 packages/fulcrum_client/ optional pure-Dart package                       (06.1)
 docs/                    contract.md (01.5) · tenant-onboarding.md (01.6) · testing.md (01.7) · runbook.md (03.2, 04.2, 04.4, 08.2)
 .github/workflows/       ci.yml (01.4) · deploy (03.2) · pg_dump_r2.yml + restore_check.yml (04.2)
+                         · monitor.yml — /health of the 3 prod hosts every 5 min, issue on failure (08.1)
 .githooks/commit-msg     keeps `Backlog:` a real trailer; installed by tool/setup_env.sh
 .gitattributes           `* text=auto eol=lf` — LF on every checkout, any OS   (01.9)
 ```
