@@ -312,6 +312,23 @@ publishable key, can spend the bucket everyone shares.
   Android build cannot be reverted that fast) — a direct client is counted by its own
   address again.
 
+### Repointing a provider's webhook (card 03.5)
+
+Moving a provider (Asaas, Google Play RTDN) from the target's function URL to
+`https://api.<product>/webhooks/<function>` is a console edit on the provider's side, and
+the one thing to copy is the **whole** URL — path **and query**. The functions authenticate
+the provider by a shared secret, and some providers can only send it in the query string
+(Entrelares' Play RTDN endpoint: `…/webhooks/billing-store-webhook?token=<secret>`; Asaas sends
+its token in a header instead, `asaas-access-token`). The gateway passes the query through
+untouched (contract §1.3), so what the provider had before is exactly what it needs after,
+with only the host and the `/functions/v1/` → `/webhooks/` prefix changed.
+
+The trap it cost: during 03.5 one endpoint was registered **without** `?token=…`, and the
+provider redelivered **335 times in ~10 minutes**, every one a `401` from the function —
+the gateway was fine, the refusal was the function's (contract §1.3). Before saving a new
+URL, compare it character by character with the old one below the host; after saving,
+watch the function's logs for the first delivery: `200` is done, `401` is the query.
+
 ### Rollback
 
 Re-run the deploy workflow on the last good commit (*Actions → Deploy → Run workflow*), or

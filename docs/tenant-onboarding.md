@@ -122,6 +122,14 @@ Five more the client IDs taught, measured while card 02.2 ran (10/09/2026):
   with the latter. Miss one and the failure is `ApiException: 10` on a device, months
   later, with no message that says why. The debug fingerprint belongs to the *machine*: a
   second developer needs a client of their own.
+- **The Play fingerprint is the one IN USE, read from the Play Console — and proved by a build
+  Play itself installed** (card 02.4, 27/09/2026). Entrelares' 02.2 registered a fingerprint
+  as Play's (`EB:52…`), and the store build installed from Play still failed Google sign-in:
+  the app-signing certificate **in use** (`64:0C:D4…`, the *App signing key certificate* at the
+  `…/keymanagement` slug below) was in no client, and a new Android client *"prod, Play
+  signing em uso"* fixed it. A sideloaded or locally signed build proves nothing here — it is
+  signed with another key. Before promoting, install the build **from Play** (Internal testing)
+  and sign in with Google on it.
 - **Two consoles, two contributions, neither sufficient alone.** The OAuth client in Google
   Cloud is what makes the pair valid to Google. The same fingerprint registered in Firebase
   is what makes `google-services.json` **list** it. Registering only in Firebase left the
@@ -253,9 +261,27 @@ The client's config file gets two values and the initialisation loses everything
 ```dart
 const gatewayUrl = 'https://api.<product>';   // 'https://api-dev.<product>' on the dev flavour
 const tenantKey  = '<TENANT_PUBLIC_KEY>';     // public: it ships in the binary
+const sessionKey = 'sb-<target project ref>-auth-token'; // the name the session ALREADY has
 
-await Supabase.initialize(url: gatewayUrl, anonKey: tenantKey);
+await Supabase.initialize(
+  url: gatewayUrl,
+  anonKey: tenantKey,
+  authOptions: FlutterAuthClientOptions(
+    localStorage: SharedPreferencesLocalStorage(persistSessionKey: sessionKey),
+  ),
+);
 ```
+
+**Pin the saved session's name, or the update signs everyone out** (cards 03.4 and 03.4.2).
+`supabase_flutter` names the stored session after the URL's host — `sb-<first label>-auth-token`,
+so `sb-<ref>-auth-token` on `<ref>.supabase.co` and `sb-api-auth-token` on `api.<product>`. Change
+only the URL and the updated app looks for a session under a name nobody wrote: every user of
+that client is signed out the moment the update lands. Entrelares pinned the old name per
+flavour (`Env.sessionStorageKey`) and its `gateway_url_test` asserts both values, so the pin
+cannot be "cleaned up" later without a red suite. Its operator console (03.4.2) shipped without
+the pin and the operator signed in again once — acceptable for one operator, not for every
+family. The pinned name is not the target's identity leaking: it is a local storage key the
+user never sees, and it stays the same when the target changes.
 
 The file is `lib/env.dart` in the Entrelares app, the Entrelares console and Desmalha, and
 `Ambiente` in Gestão IM360 (cards 03.4, 03.4.2, 03.4.3, 03.4.4). **No adapter changes.** If
@@ -266,7 +292,7 @@ Three source gates, specified here and owned by the app's repository (`docs/test
 
 | Gate | Asserts | Expected allow-list |
 | --- | --- | --- |
-| `gateway_url_test` | production never points at `*.supabase.co` | — |
+| `gateway_url_test` | production never points at `*.supabase.co`; the saved session keeps its pre-gateway name | — |
 | `no_supabase_outside_adapters_test` | the client is imported only by files on the list | the smallest list that is true today |
 | `no_oauth_redirect_test` | `signInWithOAuth` appears nowhere in `lib/` | only where there is social login |
 
@@ -275,6 +301,20 @@ answered `410` by the gateway when `BLOCK_OAUTH_REDIRECT=true` (contract §3.4).
 with social sign-in carries a third public value, the Web client ID of **its own flavour's**
 Google project — a dev build holding the production one asks Google to mint a token for the
 wrong audience, and the target rejects it without saying so.
+
+**Send a nonce on BOTH sides, on every channel** (card 02.4, entrelares-app #299, 27/09/2026).
+GoTrue accepts an id_token only when the token's `nonce` claim and the request's `nonce` both
+exist or both are absent (`Passed nonce and nonce in id_token should either both exist or not`).
+On the **web**, Google's GIS button in FedCM mode mints the token **with** a nonce even when the
+app asks for none — so "no nonce on either side", which Decisions §7 had recorded from the
+Android plugin alone (card 01.8), broke every Google sign-in on `web.entrelares.app` from 25/09
+to 27/09/2026 with that 400. The shape that works on both channels: one random **raw** nonce per
+process; its SHA-256 (lowercase hex) goes to Google — `google_sign_in` 7.2 takes it in
+`GoogleSignIn.instance.initialize(nonce: …)` — and the **raw** value goes to
+`signInWithIdToken(nonce: …)`, where GoTrue hashes it and compares. Android alone would accept no
+nonce at all; one code path for both channels is what Entrelares ships.
+And on **Android**, the OAuth client has to carry the fingerprint of the Play signing key
+**in use**, proved on a build installed from Play (step 1) — the other half of the same 02.4.
 
 **Before the first client points at the gateway, raise the target's per-IP Auth limits**
 (card 03.2.4). Behind the gateway every request reaches GoTrue from one address — the
