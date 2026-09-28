@@ -52,9 +52,24 @@ describe('monitor.yml — what it watches', () => {
 });
 
 describe('monitor.yml — what reaches the public log', () => {
-  it('reads the tenant key from a variable, never a secret, and never another credential', () => {
-    expect(job.env.KEY).toBe('${{ vars.FULCRUM_MONITOR_ENTRELARES_KEY }}');
-    expect(text).not.toMatch(/secrets\./);
+  it('reads the tenant key from its secret, and nothing else — never a variable', () => {
+    // GitHub prints every step's `env:` block and masks secrets only: a `vars.` key reaches
+    // the public log verbatim (the first drill, 28/09/2026).
+    expect(job.env.KEY).toBe('${{ secrets.FULCRUM_MONITOR_ENTRELARES_KEY }}');
+    expect(text).not.toMatch(/bvars\./);
+    expect([...text.matchAll(/secrets\.(\w+)/g)].map((m) => m[1])).toEqual([
+      'FULCRUM_MONITOR_ENTRELARES_KEY',
+    ]);
+  });
+
+  it('probes every host even when one fails — the runner starts bash with -e', () => {
+    // With `-e`, the first failing command ends the step: the first drill never probed at
+    // all, because `read` returns 1 at an EOF with no newline.
+    const lines = probeScript.split('\n').map((line) => line.trim());
+    const firstCommand = lines.find((line) => line !== '' && !line.startsWith('#'));
+    expect(firstCommand).toBe('set +e');
+    // …and `read` gets a whole line from curl, so it never returns 1 in the first place.
+    expect(probeScript).toContain(`-w '%{http_code} %{time_total}\\n'`);
   });
 
   it('never prints the key', () => {
