@@ -85,8 +85,8 @@ describe('monitor.yml — what reaches the public log', () => {
     for (const step of job.steps) expect(step.uses ?? '').not.toMatch(/upload-artifact/);
   });
 
-  it('asks for nothing beyond reading the repo and writing issues', () => {
-    expect(workflow.permissions).toEqual({ contents: 'read', issues: 'write' });
+  it('asks for nothing beyond reading the repo, writing issues and dispatching itself', () => {
+    expect(workflow.permissions).toEqual({ actions: 'write', contents: 'read', issues: 'write' });
   });
 });
 
@@ -110,7 +110,9 @@ describe('monitor.yml — the 5 minutes are a loop, not the cron', () => {
   // GitHub's scheduler fired the 5-minute cron once in ~11 h on this repository
   // (28/09/2026): the cadence has to live inside the job.
   it('loops for most of a job on schedule, and makes one pass on dispatch', () => {
-    expect(job.env.LOOP_MINUTES).toBe("${{ github.event_name == 'schedule' && 345 || 0 }}");
+    expect(job.env.LOOP_MINUTES).toBe(
+      "${{ (github.event_name == 'schedule' || inputs.loop) && 345 || 0 }}",
+    );
     const timeout = (workflow.jobs.probe as { 'timeout-minutes': number })['timeout-minutes'];
     // The loop can overrun its deadline by one sleep (< 5 min) and one pass.
     expect(345 + 10).toBeLessThanOrEqual(timeout);
@@ -124,5 +126,16 @@ describe('monitor.yml — the 5 minutes are a loop, not the cron', () => {
 
   it('ends red when any pass failed, so the run history stays the evidence', () => {
     expect(probeScript.trimEnd().endsWith('exit $any_red')).toBe(true);
+  });
+
+  // The scheduler then went 6 h 30 min without firing at all (28/09/2026).
+  it('chains itself: a looping run dispatches the next looping run before it ends', () => {
+    expect(workflow.on.workflow_dispatch.inputs.loop).toMatchObject({
+      type: 'boolean',
+      default: false,
+    });
+    expect(probeScript).toMatch(
+      /if \[ "\$LOOP_MINUTES" -gt 0 \]; then\s*\n\s*gh workflow run monitor\.yml --repo "\$GITHUB_REPOSITORY" --ref main -f loop=true/,
+    );
   });
 });

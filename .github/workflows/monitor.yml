@@ -18,7 +18,15 @@ name: Monitor
 # run probes, sleeps to the next 5-minute mark and probes again for LOOP_MINUTES (≈5 h 45 —
 # a job may run 6 h; minutes are free on a public repository), and the cron only has to
 # fire once in ~6 h for the watch to stay continuous. `cancel-in-progress: false` keeps the
-# next scheduled run queued behind the running one, so they chain.
+# next run queued behind the running one.
+#
+# AND IT CHAINS ITSELF (28/09/2026): after that, the scheduler went 6 h 30 min without firing
+# at all. So a looping run ends by dispatching the next looping run (`workflow_dispatch` is the
+# one event GITHUB_TOKEN may trigger, hence `actions: write`), and the cron is only the net
+# that restarts the chain if a run dies before dispatching. One run at a time, one successor
+# each: the concurrency group keeps a single pending run. To STOP the monitor, disable the
+# workflow (Actions → Monitor → ⋯ → Disable workflow); cancelling a run alone does not stop
+# the next one.
 #
 # On failure: ONE open issue labelled `monitor` — opened, or commented if already open — with
 # host, path and status code, and commented again only when WHAT fails changes (a long outage
@@ -33,7 +41,8 @@ name: Monitor
 # the target probe is off and the run says so. `test/unit/monitor.test.ts` reads this file as
 # data and holds all of it.
 #
-# A dispatch makes ONE pass (no loop). `drill` adds one probe that must fail —
+# A manual dispatch makes ONE pass (no loop) unless `loop` is ticked — which is how the chain
+# dispatches itself, and how it is started by hand. `drill` adds one probe that must fail —
 # `/monitor-drill` answers the gateway's own `404 unknown_route` — to prove the alert path end
 # to end; the next green pass closes the issue it opened.
 
@@ -48,8 +57,13 @@ on:
         description: 'Provoke one failing probe to test the alert (opens the issue)'
         type: boolean
         default: false
+      loop:
+        description: 'Loop for ~5 h 45 and dispatch the next run (the self-chaining monitor)'
+        type: boolean
+        default: false
 
 permissions:
+  actions: write
   contents: read
   issues: write
 
@@ -65,7 +79,7 @@ jobs:
     env:
       KEY: ${{ secrets.FULCRUM_MONITOR_ENTRELARES_KEY }}
       DRILL: ${{ inputs.drill || false }}
-      LOOP_MINUTES: ${{ github.event_name == 'schedule' && 345 || 0 }}
+      LOOP_MINUTES: ${{ (github.event_name == 'schedule' || inputs.loop) && 345 || 0 }}
       GH_TOKEN: ${{ github.token }}
       RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
     steps:
@@ -172,4 +186,10 @@ jobs:
             # Sleep to the next 5-minute mark of the run, however long this pass took.
             sleep $(( 300 - (now % 300) ))
           done
+          # The chain: a looping run hands over to the next before it ends, red or green.
+          if [ "$LOOP_MINUTES" -gt 0 ]; then
+            gh workflow run monitor.yml --repo "$GITHUB_REPOSITORY" --ref main -f loop=true \
+              && echo "Next looping run dispatched" \
+              || echo "::warning::could not dispatch the next run — the cron will restart the chain"
+          fi
           exit $any_red
