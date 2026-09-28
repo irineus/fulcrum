@@ -3,8 +3,7 @@ name: Monitor
 # Card 08.1 — the external watch on the three production gateways.
 #
 # Whoever watches stays outside the thing watched: GitHub is not Cloudflare, so a Cloudflare
-# outage is seen from here (Decisions §3). Every 5 minutes (GitHub's minimum; the scheduler
-# sometimes runs a few minutes late — what counts is "no red run", not "a run every 5:00"):
+# outage is seen from here (Decisions §3). Every 5 minutes:
 #   · `/health` on the three production hosts, with the `tenant` it answers checked — the
 #     Worker is up and serving THAT tenant's env. `/health` never touches the target.
 #   · `GET /auth/v1/settings` on api.entrelares.app with the tenant key — the one path that
@@ -13,10 +12,19 @@ name: Monitor
 #     join the day theirs are (03.4.3, 03.4.4).
 # A probe that fails is tried once more after 10 s, so one lost packet is not an incident.
 #
+# THE 5 MINUTES ARE A LOOP INSIDE THE JOB, not the cron (owner, 28/09/2026). Measured on
+# this repository: in the ~11 h after this workflow landed, GitHub's scheduler fired the
+# `*/5`-style cron ONCE (07:37 UTC), and the daily crons here run 5–6 h late. So a scheduled
+# run probes, sleeps to the next 5-minute mark and probes again for LOOP_MINUTES (≈5 h 45 —
+# a job may run 6 h; minutes are free on a public repository), and the cron only has to
+# fire once in ~6 h for the watch to stay continuous. `cancel-in-progress: false` keeps the
+# next scheduled run queued behind the running one, so they chain.
+#
 # On failure: ONE open issue labelled `monitor` — opened, or commented if already open — with
-# the host, the path and the status code. GitHub e-mails the owner for both. When every probe
-# is green again, the issue gets a recovery comment and is closed. The run history of this
-# workflow is the evidence of card 03.6's "7 days of green /health".
+# host, path and status code, and commented again only when WHAT fails changes (a long outage
+# is one e-mail, not one every 5 minutes). GitHub e-mails the owner for both. The first
+# all-green pass closes it. A run in which any pass failed ends red, so "no red run" in the
+# history stays the evidence of card 03.6's "7 days of green /health".
 #
 # PUBLIC repository, so the log is public: it prints host, path, status and time — never the
 # key and never a response body. The key is the tenant's PUBLIC key, and it is still read
@@ -25,13 +33,14 @@ name: Monitor
 # the target probe is off and the run says so. `test/unit/monitor.test.ts` reads this file as
 # data and holds all of it.
 #
-# `drill` (dispatch only) adds one probe that must fail — `/monitor-drill` answers the
-# gateway's own `404 unknown_route` — to prove the alert path end to end; the next green
-# run closes the issue it opened.
+# A dispatch makes ONE pass (no loop). `drill` adds one probe that must fail —
+# `/monitor-drill` answers the gateway's own `404 unknown_route` — to prove the alert path end
+# to end; the next green pass closes the issue it opened.
 
 on:
   schedule:
-    # Off the top of the hour, where GitHub's scheduler is most loaded.
+    # Off the top of the hour, where GitHub's scheduler is most loaded. Frequent on purpose:
+    # each firing is one more chance for the scheduler to start the next loop.
     - cron: '2-59/5 * * * *'
   workflow_dispatch:
     inputs:
@@ -51,20 +60,22 @@ concurrency:
 jobs:
   probe:
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    # GitHub's ceiling for a job; the loop stops at LOOP_MINUTES, well before it.
+    timeout-minutes: 360
     env:
       KEY: ${{ secrets.FULCRUM_MONITOR_ENTRELARES_KEY }}
       DRILL: ${{ inputs.drill || false }}
+      LOOP_MINUTES: ${{ github.event_name == 'schedule' && 345 || 0 }}
       GH_TOKEN: ${{ github.token }}
       RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
     steps:
-      - name: Probe the production gateways
+      - name: Probe the production gateways, every 5 minutes
         run: |
           # NO `-e`, on purpose and explicitly: the runner starts bash with `-e`, and a failing
           # probe must be recorded, not end the step before the next host is probed.
           set +e
           set -uo pipefail
-          : > failures.txt
+
           # <host> <path> <jq test on the body> [curl header args...]
           probe() {
             local host="$1" path="$2" test="$3"; shift 3
@@ -85,59 +96,80 @@ jobs:
             echo "$host $path $code" >> failures.txt
           }
 
-          probe api.entrelares.app /health '.tenant == "entrelares"'
-          probe api.gestaoim360.com /health '.tenant == "gestaoim360"'
-          probe api.desmalha.app /health '.tenant == "desmalha"'
-          if [ -n "$KEY" ]; then
-            probe api.entrelares.app /auth/v1/settings '.external != null' \
-              -H "apikey: $KEY" -H "Authorization: Bearer $KEY"
-          else
-            echo "::notice::the secret FULCRUM_MONITOR_ENTRELARES_KEY is not set — the target probe is off"
-          fi
-          if [ "$DRILL" = true ]; then
-            echo "Drill: one probe that must fail"
-            probe api.entrelares.app /monitor-drill 'true'
-          fi
+          open_issue() {
+            gh issue list --repo "$GITHUB_REPOSITORY" --label monitor --state open \
+              --json number --jq '.[0].number // empty'
+          }
 
-          [ ! -s failures.txt ]
-
-      - name: Open or comment the monitor issue
-        if: failure()
-        run: |
-          set -euo pipefail
-          now=$(date -u '+%Y-%m-%d %H:%M UTC')
-          {
-            echo "**$now** — probe(s) failing, each after one retry:"
-            echo
-            if [ -s failures.txt ]; then
+          # One issue per incident: opened, or commented when what fails changed.
+          report() {
+            {
+              echo "**$(date -u '+%Y-%m-%d %H:%M UTC')** — probe(s) failing, each after one retry:"
+              echo
               while read -r host path code; do
                 echo "- \`$host$path\` → **$code**"
               done < failures.txt
+              echo
+              if [ "$DRILL" = true ]; then
+                echo "_Drill run (\`drill: true\`): the \`/monitor-drill\` failure is provoked on purpose._"
+                echo
+              fi
+              echo "Run: $RUN_URL · what to do: \`docs/runbook.md\` §Monitor"
+            } > issue.md
+            gh label create monitor --repo "$GITHUB_REPOSITORY" --color B60205 \
+              --description 'Opened by the Monitor workflow (card 08.1)' --force > /dev/null
+            local open
+            open=$(open_issue)
+            if [ -n "$open" ]; then
+              gh issue comment "$open" --repo "$GITHUB_REPOSITORY" --body-file issue.md
             else
-              echo "- the probe step failed without a probe result"
+              gh issue create --repo "$GITHUB_REPOSITORY" --label monitor \
+                --title "Monitor: production gateway probe failing" --body-file issue.md
             fi
-            echo
-            [ "$DRILL" = true ] && echo "_Drill run (\`drill: true\`): the \`/monitor-drill\` failure is provoked on purpose._" && echo
-            echo "Run: $RUN_URL · what to do: \`docs/runbook.md\` §Monitor"
-          } > issue.md
-          gh label create monitor --repo "$GITHUB_REPOSITORY" --color B60205 \
-            --description 'Opened by the Monitor workflow (card 08.1)' --force > /dev/null
-          open=$(gh issue list --repo "$GITHUB_REPOSITORY" --label monitor --state open \
-            --json number --jq '.[0].number // empty')
-          if [ -n "$open" ]; then
-            gh issue comment "$open" --repo "$GITHUB_REPOSITORY" --body-file issue.md
-          else
-            gh issue create --repo "$GITHUB_REPOSITORY" --label monitor \
-              --title "Monitor: production gateway probe failing" --body-file issue.md
-          fi
+          }
 
-      - name: Close the monitor issue on recovery
-        if: success()
-        run: |
-          set -euo pipefail
-          open=$(gh issue list --repo "$GITHUB_REPOSITORY" --label monitor --state open \
-            --json number --jq '.[0].number // empty')
-          if [ -n "$open" ]; then
-            gh issue close "$open" --repo "$GITHUB_REPOSITORY" \
-              --comment "**$(date -u '+%Y-%m-%d %H:%M UTC')** — every probe green again. Run: $RUN_URL"
-          fi
+          close_if_open() {
+            local open
+            open=$(open_issue)
+            if [ -n "$open" ]; then
+              gh issue close "$open" --repo "$GITHUB_REPOSITORY" \
+                --comment "**$(date -u '+%Y-%m-%d %H:%M UTC')** — every probe green again. Run: $RUN_URL"
+            fi
+          }
+
+          deadline=$(( $(date +%s) + LOOP_MINUTES * 60 ))
+          any_red=0
+          last_state=first
+          while :; do
+            echo "── pass at $(date -u '+%H:%M:%S UTC')"
+            : > failures.txt
+            probe api.entrelares.app /health '.tenant == "entrelares"'
+            probe api.gestaoim360.com /health '.tenant == "gestaoim360"'
+            probe api.desmalha.app /health '.tenant == "desmalha"'
+            if [ -n "$KEY" ]; then
+              probe api.entrelares.app /auth/v1/settings '.external != null' \
+                -H "apikey: $KEY" -H "Authorization: Bearer $KEY"
+            else
+              echo "::notice::the secret FULCRUM_MONITOR_ENTRELARES_KEY is not set — the target probe is off"
+            fi
+            if [ "$DRILL" = true ]; then
+              echo "Drill: one probe that must fail"
+              probe api.entrelares.app /monitor-drill 'true'
+            fi
+
+            if [ -s failures.txt ]; then
+              any_red=1
+              state=$(tr '\n' ';' < failures.txt)
+              [ "$state" != "$last_state" ] && report
+              last_state=$state
+            else
+              [ -n "$last_state" ] && close_if_open
+              last_state=
+            fi
+
+            now=$(date +%s)
+            [ "$now" -ge "$deadline" ] && break
+            # Sleep to the next 5-minute mark of the run, however long this pass took.
+            sleep $(( 300 - (now % 300) ))
+          done
+          exit $any_red
