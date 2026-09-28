@@ -1,8 +1,8 @@
 # Runbook
 
-> **One section is still unwritten.** Card **08.2** writes it: a prolonged Cloudflare
-> incident — the "point DNS straight at the target" path, and the explicitly accepted cost
-> that the tenant key ≠ target key means that scenario requires publishing an app.
+> **A prolonged Cloudflare incident** has its own section at the end (card 08.2): what is
+> behind Cloudflare today, which failures have a way around the gateway, and what each way
+> costs.
 
 ## Backup (card 04.2)
 
@@ -403,3 +403,94 @@ target down" (§Checking a deploy).
 - **GitHub disables a scheduled workflow after 60 days without activity in a public
   repository**, with an e-mail. A quiet Fulcrum is exactly that — re-enable it on the
   Actions tab (*Monitor → Enable workflow*) or with `gh workflow enable monitor.yml`.
+
+## Prolonged Cloudflare incident (card 08.2)
+
+The gateway is a single point on the path of every client. This section is what exists
+**today** (measured 28/09/2026), not the plan of 06/09: most of the escape routes that plan
+assumed either cost money or do not exist.
+
+### First: what else sits behind Cloudflare
+
+| Piece | Behind Cloudflare? | Measured |
+|---|---|---|
+| `api.<product>` (the gateway) | yes — a Worker | `Server: cloudflare` |
+| `web.entrelares.app` | yes — Cloudflare Pages | `Server: cloudflare` |
+| `entrelares.app` (landing) | yes — a Worker | `Server: cloudflare` |
+| DNS of `entrelares.app` | yes — the zone's nameservers | `burt.ns.cloudflare.com`, `priscilla.ns.cloudflare.com` |
+| **the target itself**, `<ref>.supabase.co` | **yes** — Supabase's own edge | `Server: cloudflare` and a `CF-Ray` on `jptqbwfziyzlhlmoekzu.supabase.co` |
+
+So there are two different incidents, and only one of them has a way around:
+
+- **Cloudflare is down as a whole** (DNS/CDN): the product's DNS, the web, the landing, the
+  gateway **and the target's own edge** go down together. Nothing below helps and nothing
+  should be tried: no URL the app could switch to answers. Wait it out, tell users through
+  the owner's own channels (the product's are down too), and read
+  [cloudflarestatus.com](https://www.cloudflarestatus.com) and
+  [status.supabase.com](https://status.supabase.com).
+- **Only Workers are down, or only this Worker** (a Workers-platform incident, a bad deploy,
+  the account's request allowance spent): the zone, Pages and `*.supabase.co` still answer.
+  This is the incident the routes below are for.
+
+The monitor (§Monitor) tells them apart: every `/health` at `000`/`5xx` while
+`*.supabase.co` still answers a `curl.exe -sI` is the second; `000` on everything, Supabase
+included, is the first.
+
+### Route 0 — it is the allowance, not an outage
+
+Workers Free serves 100k requests a day **per account**, shared by the three tenants
+(Decisions §3). Past it, requests fail until 00:00 UTC. Check the account's request count on
+*Workers & Pages → Overview* before anything else; the remedy is **Workers Paid** (US$ 5 a
+month, flat — the one fixed cost Fulcrum can grow), effective at once, with no deploy and no
+app release.
+
+### Route 1 — the Worker is broken, the platform is fine
+
+Re-deploy the last good commit (§Rollback). Minutes; nothing else moves.
+
+### Route 2 — Workers are down for long: clients go straight to the target
+
+The tenant key the apps carry is **not** a key the target accepts: the gateway swaps it for
+the target's publishable key on the way in (contract §2). Every client that bypasses the
+gateway therefore needs a **new build** carrying `https://<ref>.supabase.co` **and** the
+target's publishable key. That is the explicitly accepted cost of the design: the key that
+spares an app release on the day the *target* changes is the same key that forces one on the
+day the *gateway* is bypassed.
+
+**"Point `api.<product>`'s DNS straight at the target" is not a route today.** It needs two
+things, and neither holds:
+
+1. the target has to accept the host `api.<product>`. On managed Supabase that is the
+   **Custom Domain add-on — available only on a paid plan** (Pro, US$ 25/month, plus
+   US$ 10/month per project for the domain), with a CNAME, a TXT ownership record and a
+   certificate that "can take up to 30 minutes"
+   ([Supabase docs](https://supabase.com/docs/guides/platform/custom-domains)). Every product
+   is on Free (Decisions §4);
+2. the app would have to send the target's key — and it sends the tenant key, which the
+   target answers with `401`. Even with the add-on bought, the app still needs the release of
+   route 2, and the DNS change buys nothing.
+
+What each Entrelares client takes to go direct, measured:
+
+| Client | What changes | How it reaches users | Time |
+|---|---|---|---|
+| Web (`web.entrelares.app`) | `app/lib/env.dart`: `supabaseUrl` → `https://<ref>.supabase.co`, `supabaseKey` → the publishable key, in **both** flavours (the dev build's `web-e2e` also goes through a Worker, `api-dev`, and `deploy-web` waits for it); `gateway_url_test` inverted in the same PR; `sessionStorageKey` **untouched** — it is pinned to `sb-<ref>-auth-token`, so every saved session survives the switch (onboarding §4) | a merge publishes it (Cloudflare Pages, up in this scenario) | **~47 min** from PR to published, measured on entrelares-app #299 (27/09/2026: opened 16:07 UTC, gates green 16:29, `main` published 16:54) |
+| Android (`com.entrelares.app`) | the same PR plus a version bump | `play-internal` uploads it on the merge; `play-promote` with the owner's approval sends it to Production; **then Google's review** | **the review time is not measured yet**: the two promotions so far (164 at 14:25 UTC and 165 at 23:33 UTC, 27/09/2026) recorded the submission only. Read the release history in the Play Console on the next promotion and write the number here. Until then plan for hours, possibly days — the Android app is down for that long |
+| Operator console | `lib/env.dart` of `entrelares-console`, as above (it does **not** pin its session name: the operator signs in again, once) | a release APK sideloaded on the owner's phone — no store, no CI | as long as a local build takes |
+| Landing (`entrelares.app`) | usually nothing: it serves the last good copy of `public-settings` for a day, then the values baked at deploy, and says which in `x-entrelares-params` (`stale`/`baked`). If the values must move while the gateway is down: `PARAMS_URL` → `https://<ref>.supabase.co/functions/v1/public-settings` and `PARAMS_KEY` → the publishable key, in `wrangler.jsonc` of `entrelares-site`, redeployed | the landing's own deploy | minutes — but the landing is a Worker too, so in a Workers-wide incident it is down anyway |
+| Provider webhooks (Asaas, Play RTDN) | nothing — both providers retry | they redeliver when the gateway is back | — (a long outage can make Asaas pause the queue; re-enable it on its console) |
+
+Gestão IM360 and Desmalha have no client behind the gateway yet (03.4.3, 03.4.4): an outage
+shows only on their `/health`.
+
+**Going back** is the same PR reverted, with the same timings — and the gateway must be
+answering first (contract §7: an app never points at a host that does not answer).
+
+### What the monitor shows
+
+| Incident | `/health` × 3 | `/auth/v1/settings` | Issue |
+|---|---|---|---|
+| Cloudflare down as a whole | `000` | `000` | opened on the first red run |
+| Workers down, or the allowance spent | `000`/`5xx` — Cloudflare's own error page, never the `{"error","source":"fulcrum"}` envelope | same | opened |
+| This Worker broken on one env | red on that host only | red if it is Entrelares | opened, naming the host |
+| The target down, gateway fine | `200` | `5xx`/`000` | opened, `/health` green — not a Cloudflare incident |
