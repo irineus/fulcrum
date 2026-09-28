@@ -19,8 +19,11 @@ name: Monitor
 # workflow is the evidence of card 03.6's "7 days of green /health".
 #
 # PUBLIC repository, so the log is public: it prints host, path, status and time — never the
-# key (a VARIABLE, since it is the tenant's PUBLIC key, and still never echoed) and never a
-# response body. `test/unit/monitor.test.ts` reads this file as data and holds all of it.
+# key and never a response body. The key is the tenant's PUBLIC key, and it is still read
+# from a SECRET: GitHub prints every step's `env:` block in the log and masks secrets only,
+# never variables — the first drill (28/09/2026) printed it from `vars` that way. No secret →
+# the target probe is off and the run says so. `test/unit/monitor.test.ts` reads this file as
+# data and holds all of it.
 #
 # `drill` (dispatch only) adds one probe that must fail — `/monitor-drill` answers the
 # gateway's own `404 unknown_route` — to prove the alert path end to end; the next green
@@ -50,13 +53,16 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     env:
-      KEY: ${{ vars.FULCRUM_MONITOR_ENTRELARES_KEY }}
+      KEY: ${{ secrets.FULCRUM_MONITOR_ENTRELARES_KEY }}
       DRILL: ${{ inputs.drill || false }}
       GH_TOKEN: ${{ github.token }}
       RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
     steps:
       - name: Probe the production gateways
         run: |
+          # NO `-e`, on purpose and explicitly: the runner starts bash with `-e`, and a failing
+          # probe must be recorded, not end the step before the next host is probed.
+          set +e
           set -uo pipefail
           : > failures.txt
           # <host> <path> <jq test on the body> [curl header args...]
@@ -65,7 +71,7 @@ jobs:
             local code ms attempt
             for attempt in 1 2; do
               read -r code ms < <(curl -s -o body.json --max-time 15 \
-                -w '%{http_code} %{time_total}' "$@" "https://$host$path" || true)
+                -w '%{http_code} %{time_total}\n' "$@" "https://$host$path" || true)
               code=${code:-000}
               if [ "$code" = 200 ] && jq -e "$test" body.json > /dev/null 2>&1; then
                 echo "OK   $host$path → $code in ${ms}s"
@@ -86,7 +92,7 @@ jobs:
             probe api.entrelares.app /auth/v1/settings '.external != null' \
               -H "apikey: $KEY" -H "Authorization: Bearer $KEY"
           else
-            echo "::notice::FULCRUM_MONITOR_ENTRELARES_KEY is not set — the target probe is off"
+            echo "::notice::the secret FULCRUM_MONITOR_ENTRELARES_KEY is not set — the target probe is off"
           fi
           if [ "$DRILL" = true ]; then
             echo "Drill: one probe that must fail"

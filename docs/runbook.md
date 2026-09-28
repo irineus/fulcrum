@@ -345,10 +345,12 @@ hour; the scheduler sometimes runs late — the measure is "no red run", not "a 
 | `https://api.desmalha.app/health` | idem | `200` + `.tenant == "desmalha"` |
 | `https://api.entrelares.app/auth/v1/settings`, tenant key in `apikey` and `Bearer` | the whole path: key check, key swap, GoTrue answering | `200` + GoTrue's settings |
 
-The fourth needs the repository **variable** `FULCRUM_MONITOR_ENTRELARES_KEY` (the production
-`TENANT_PUBLIC_KEY` of `entrelares` — public by design, a variable and not a secret so the
-monitor can never be handed anything privileged); without it the run says so in a notice and
-probes `/health` only. Gestão and Desmalha get the same probe the day a client of theirs is
+The fourth needs the repository **secret** `FULCRUM_MONITOR_ENTRELARES_KEY` — the production
+`TENANT_PUBLIC_KEY` of `entrelares`. It is public by design (the app ships it), and it is still
+a secret, not a variable: GitHub prints every step's `env:` block in the log and masks secrets
+only, so a variable reaches the public log verbatim — the first drill (28/09/2026) did exactly
+that, and those logs were deleted. Without the secret the run says so in a notice and probes
+`/health` only. Gestão and Desmalha get the same probe the day a client of theirs is
 behind the gateway (03.4.3, 03.4.4). A failing probe is retried once after 10 s.
 
 The log is public: host, path, status and time, never the key and never a body.
@@ -366,7 +368,7 @@ comments the recovery and closes it. Reading the status:
 | `000` on every host | all | GitHub's network, or Cloudflare itself | [cloudflarestatus.com](https://www.cloudflarestatus.com); re-run the workflow. Cloudflare down for long: §Prolonged Cloudflare incident (card 08.2) |
 | `000`/`5xx` on one host's `/health` | one tenant | that env's deploy or its custom domain | `curl.exe -s https://api.<product>/health`; the last Deploy run; the domain in the Cloudflare dashboard |
 | `404` with `unknown_tenant` | `/health` | `TENANT_HOST` ≠ the route | `wrangler.toml` and the last deploy |
-| `200` on `/health`, `401` on `/auth/v1/settings` | Entrelares | the tenant key rotated and the variable did not follow | the variable against the env's `TENANT_PUBLIC_KEY` |
+| `200` on `/health`, `401` on `/auth/v1/settings` | Entrelares | the tenant key rotated and the secret did not follow | the secret against the env's `TENANT_PUBLIC_KEY` |
 | `200` on `/health`, `5xx`/`000` on `/auth/v1/settings` | Entrelares | the **target** (Supabase) is down, the gateway is fine | [status.supabase.com](https://status.supabase.com) and the prod project's logs |
 
 `/health` never touches the target, so "health green, settings red" always reads "gateway up,
