@@ -351,9 +351,16 @@ bypassed.
 
 ## Monitor (card 08.1)
 
-`.github/workflows/monitor.yml` runs every 5 minutes (GitHub's minimum, off the top of the
-hour; the scheduler sometimes runs late — the measure is "no red run", not "a run every
-5:00"). GitHub is not Cloudflare, so whoever watches stays outside the thing watched.
+`.github/workflows/monitor.yml` probes every 5 minutes. GitHub is not Cloudflare, so whoever
+watches stays outside the thing watched.
+
+**The 5 minutes are a loop inside the job, not the cron** (owner, 28/09/2026). Measured here:
+in the ~11 h after the workflow landed, GitHub's scheduler fired its 5-minute cron **once**,
+and this repository's daily crons run 5–6 h late. So each scheduled run probes, sleeps to the
+next 5-minute mark and probes again for about 5 h 45 (a job may run 6 h; minutes are free on
+a public repository), and the next scheduled run waits queued behind it
+(`cancel-in-progress: false`) — the watch stays continuous as long as the scheduler fires at
+least once in ~6 h. A manual dispatch makes a single pass.
 
 | Probe | Proves | Expects |
 |---|---|---|
@@ -377,8 +384,10 @@ of `wrangler.toml` must be probed) and the one-issue rule.
 ### When the issue arrives
 
 A failure opens **one** issue labelled `monitor` (or comments the open one) with each
-failing `host/path → status`; GitHub e-mails the owner for both. The next all-green run
-comments the recovery and closes it. Reading the status:
+failing `host/path → status`, and comments again only when *what* fails changes — a long
+outage is one e-mail, not one every 5 minutes; GitHub e-mails the owner for both. The first
+all-green pass comments the recovery and closes it. A run in which any pass failed ends red.
+Reading the status:
 
 | Status | Where | Most likely | First look |
 |---|---|---|---|
@@ -395,7 +404,9 @@ target down" (§Checking a deploy).
 
 - **The 7 days of card 03.6** are this workflow's history:
   `gh run list --repo irineus/fulcrum --workflow monitor.yml --limit 100` (and the Actions
-  tab filtered by *Monitor*).
+  tab filtered by *Monitor*). Two readings, both needed: no red run, and no **gap** — each
+  run covers ~5 h 45 from its start, so the start of one run to the start of the next must
+  stay under ~6 h; a longer gap is time nobody watched, and is reported as such.
 - **Testing the alert:** *Actions → Monitor → Run workflow* with `drill` checked adds a
   probe of `/monitor-drill`, which answers the gateway's own `404 unknown_route`; the run
   goes red and opens the issue, and the next scheduled run closes it. Done once on purpose

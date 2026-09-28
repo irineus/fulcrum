@@ -92,13 +92,37 @@ describe('monitor.yml — what reaches the public log', () => {
 
 describe('monitor.yml — one incident, one issue', () => {
   it('comments the open `monitor` issue instead of opening another', () => {
-    const open = job.steps.find((s) => s.if === 'failure()')?.run ?? '';
-    expect(open).toMatch(/gh issue list[^\n]*--label monitor --state open/);
-    expect(open).toMatch(/if \[ -n "\$open" \]; then\s*\n\s*gh issue comment/);
+    expect(probeScript).toMatch(/gh issue list[^\n]*--label monitor --state open/);
+    expect(probeScript).toMatch(/if \[ -n "\$open" \]; then\s*\n\s*gh issue comment/);
   });
 
-  it('closes it when every probe is green again', () => {
-    const close = job.steps.find((s) => s.if === 'success()')?.run ?? '';
-    expect(close).toMatch(/gh issue close/);
+  it('comments again only when what fails changes — a long outage is one e-mail', () => {
+    expect(probeScript).toContain('[ "$state" != "$last_state" ] && report');
+  });
+
+  it('closes it on the first all-green pass', () => {
+    expect(probeScript).toMatch(/gh issue close/);
+    expect(probeScript).toContain('[ -n "$last_state" ] && close_if_open');
+  });
+});
+
+describe('monitor.yml — the 5 minutes are a loop, not the cron', () => {
+  // GitHub's scheduler fired the 5-minute cron once in ~11 h on this repository
+  // (28/09/2026): the cadence has to live inside the job.
+  it('loops for most of a job on schedule, and makes one pass on dispatch', () => {
+    expect(job.env.LOOP_MINUTES).toBe("${{ github.event_name == 'schedule' && 345 || 0 }}");
+    const timeout = (workflow.jobs.probe as { 'timeout-minutes': number })['timeout-minutes'];
+    // The loop can overrun its deadline by one sleep (< 5 min) and one pass.
+    expect(345 + 10).toBeLessThanOrEqual(timeout);
+    expect(timeout).toBeLessThanOrEqual(360);
+    expect(probeScript).toContain('sleep $(( 300 - (now % 300) ))');
+  });
+
+  it('queues the next run behind the running one instead of cancelling it', () => {
+    expect(workflow.concurrency).toEqual({ group: 'monitor', 'cancel-in-progress': false });
+  });
+
+  it('ends red when any pass failed, so the run history stays the evidence', () => {
+    expect(probeScript.trimEnd().endsWith('exit $any_red')).toBe(true);
   });
 });
