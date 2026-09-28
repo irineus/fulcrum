@@ -404,6 +404,44 @@ target down" (§Checking a deploy).
   repository**, with an e-mail. A quiet Fulcrum is exactly that — re-enable it on the
   Actions tab (*Monitor → Enable workflow*) or with `gh workflow enable monitor.yml`.
 
+## Scaling out of US$ 0 — one product at a time (card 04.3)
+
+The structure (Decisions §4, verified 28/09/2026): **one Supabase account per product**, two
+orgs and two Free projects in it — prod and dev — so six projects, three accounts, US$ 0 a
+month. Because each product owns its account, every way out below touches **one** product's
+bill and target and nothing else.
+
+| Product | Prod | Dev |
+|---|---|---|
+| Entrelares | `jptqbwfziyzlhlmoekzu` | `buroanotfjcgvbfmacuh` |
+| Gestão IM360 | `aqfuawrygxsiopyppjza` | `ncdfolxdupbbfvtydngx` |
+| Desmalha | `deqmqiyxfbvlhardtjni` | `caqxssmxeiuutfguxdzj` |
+
+**What pushes a product out of Free**, in the order it tends to happen: the 50,000-MAU cap per
+org (users who authenticated in the cycle, deleted or not — the Entrelares dev org hit
+91,988 from CI alone, card 04.3.1), the database-size and egress quotas, the 7-day pause of
+an idle project (T-44's keep-alive on dev), and the lack of a daily backup (covered by 04.2's
+`pg_dump` → R2, which is why no product *has* to leave for that one).
+
+**The way out, cheapest first:**
+
+1. **Remove the cause, if it is CI.** A lane creating users on a hosted project goes to a local
+   stack (onboarding §2). This was the whole remedy for the Entrelares dev — no plan change.
+2. **Pro for ONE product**: upgrade that product's own org in its own account (US$ 25/month,
+   with US$ 10 of compute credits; 100k MAU included, daily backups, no pause). Its prod keeps its
+   ref, URL and keys, so the gateway's secrets and the apps do not change, and the other two
+   products never see it on their bill — the reason the structure has one account per
+   product. Upgrade the **prod** org; a dev org that outgrows Free is a CI problem first
+   (step 1), never a reason to pay for dev (owner, 27/09/2026).
+3. **Another target for ONE product** (`TARGET=neon`, Phase 05): a per-env switch in
+   `wrangler.toml`, reached only with the three contract matrices green (Decisions §6). The app
+   keeps its tenant key and needs no release; its users sign in again once (the JWT issuer
+   changes — Decisions §3).
+
+What never happens: consolidating products into one paid org (it couples two bills and two
+targets — the allocation of 06/09 that Decisions §4 superseded), or switching a dev project off
+to save money (it is the `supabase-dev` matrix's target).
+
 ## Prolonged Cloudflare incident (card 08.2)
 
 The gateway is a single point on the path of every client. This section is what exists

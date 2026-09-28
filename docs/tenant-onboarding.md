@@ -190,6 +190,22 @@ Three constraints worth knowing before creating them:
   provider account instead of the consent screen.
 - the Free plan has **no backup**, so a tenant that handles anything worth keeping goes to
   production only with step 7 running (card 04.2).
+- **"US$ 0" has a limit that is not money: 50,000 MAU per org on Free** (card 04.3). Free
+  counts as a monthly active user **every distinct user who signs in or refreshes a token in
+  the billing cycle — deleted afterwards or not** — and over the cap the org is restricted at the end of a grace
+  period, every request to its projects answering `402`. So **on Free, a CI lane that creates
+  users does not run against a hosted project**: it runs on a local stack (`supabase start` on
+  the runner, the migrations from zero). Entrelares learned it at 91,988 / 50,000 on its dev
+  org (cycle 09/09–09/10/2026, restriction due 24/10) — its DB gate created ~344 users per
+  run, 375 runs; card 04.3.1 moved the gate to a local stack. Gestão (`testes.yml`:
+  `supabase start` + `db reset`) and Desmalha (`supabase.yml`: a `postgres:17` service) were
+  local already. What still reaches the hosted dev from CI — an E2E lane, the contract
+  suite's two fixed users — writes its users-per-run next to it.
+- **A local stack is an option, never a substitute for the hosted dev.** The dev project is
+  the target of `api-dev.<product>`, of the QA channels and of the contract suite's
+  `supabase-dev` matrix (`docs/testing.md` §4), which is the gate for ever moving a tenant to
+  another target (Decisions §6). Switching a dev project off to save money would cost that
+  gate.
 
 ## 3. Env in `gateway/wrangler.toml`, and its secrets
 

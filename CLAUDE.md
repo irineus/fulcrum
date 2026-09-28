@@ -119,7 +119,12 @@ gateway a watcher would depend on the edge and measure the wrong thing.
    Two per account is exactly one product, so the free allowance is the unit of isolation,
    and paying for or scaling one product never touches another's billing (R1 applied to the
    provider account). Never a schema in another product's database. Migrations and functions
-   stay **in the app's repo**; Fulcrum has no SQL and no domain.
+   stay **in the app's repo**; Fulcrum has no SQL and no domain. **On Free, CI that creates
+   users runs on a local stack** (`supabase start`), never on the hosted projects — Free counts
+   every user who signs in or refreshes a token as a MAU, deleted or not, and caps an org at 50k (card 04.3; the
+   Entrelares dev reached 91,988). `supabase start` is that option, and an option for local
+   work — **never a substitute for the hosted dev**, which `api-dev.<product>`, QA and the
+   `supabase-dev` contract matrix need.
 3. **Env in `gateway/wrangler.toml`:** `TENANT`, `TENANT_HOST`, `TARGET`, `CANARY`,
    `ALLOWED_ORIGINS`, `BLOCK_OAUTH_REDIRECT`; secrets via `wrangler secret put`. Custom
    domain on Cloudflare (`custom_domain = true` creates the DNS record — do not hand-create
