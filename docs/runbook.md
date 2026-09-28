@@ -360,7 +360,16 @@ and this repository's daily crons run 5–6 h late. So each scheduled run probes
 next 5-minute mark and probes again for about 5 h 45 (a job may run 6 h; minutes are free on
 a public repository), and the next scheduled run waits queued behind it
 (`cancel-in-progress: false`) — the watch stays continuous as long as the scheduler fires at
-least once in ~6 h. A manual dispatch makes a single pass.
+least once in ~6 h. It then went **6 h 30 min without firing at all**, so the monitor
+**chains itself**: a looping run ends by dispatching the next looping run
+(`gh workflow run monitor.yml -f loop=true`, the one event `GITHUB_TOKEN` may trigger — hence
+`actions: write`), and the cron is only the net that restarts the chain if a run dies before
+handing over. A manual dispatch makes a single pass unless `loop` is ticked; ticking it is
+also how the chain is started by hand.
+
+**To stop the monitor**, disable the workflow (*Actions → Monitor → ⋯ → Disable workflow*, or
+`gh workflow disable monitor.yml --repo irineus/fulcrum`). Cancelling the running run is not
+enough: the next one is already queued.
 
 | Probe | Proves | Expects |
 |---|---|---|
