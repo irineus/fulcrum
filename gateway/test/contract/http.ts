@@ -92,7 +92,11 @@ export async function signIn(
     body: { email: user.email, password: user.password },
   });
   if (answer.status !== 200) {
-    throw new Error(`sign-in ${way.name} answered ${answer.status}`);
+    // GoTrue's `error_code` names the cause (`invalid_credentials`, `email_not_confirmed`)
+    // without echoing anything of the request — safe for a public log, and the difference
+    // between "the fixture's secret is wrong" and "the project refuses passwords".
+    const code = (answer.json as { error_code?: string } | undefined)?.error_code ?? '?';
+    throw new Error(`sign-in ${way.name} answered ${answer.status} (${code})`);
   }
   return answer.json as Session;
 }

@@ -52,8 +52,8 @@ jobs:
           - tenant: desmalha
             secret: DESMALHA
             fulcrum_url: https://api-dev.desmalha.app
-            target_url: ""
-            allowed_origin: ""
+            target_url: https://caqxssmxeiuutfguxdzj.supabase.co
+            allowed_origin: http://localhost:8080
             blocks_oauth: "false"
             uses_otp: "true"
     env:
