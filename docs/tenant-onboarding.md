@@ -439,14 +439,14 @@ the card that fills it — so this table is also the inventory of what is still 
 | **3** `[env.<tenant>]` in `wrangler.toml` | `entrelares` ✓ | `gestaoim360` ✓ | `desmalha` ✓ |
 | **3** `[env.<tenant>-dev]` | `entrelares-dev` ✓ | `gestaoim360-dev` ✓ | `desmalha-dev` ✓ |
 | **3** `TENANT_HOST` | `api.entrelares.app` · `api-dev.entrelares.app` ✓ | `api.gestaoim360.com` · `api-dev.gestaoim360.com` ✓ | `api.desmalha.app` · `api-dev.desmalha.app` ✓ |
-| **3** `ALLOWED_ORIGINS` (prod) | `https://web.entrelares.app,https://entrelares.app` | `https://app.gestaoim360.com` | *empty* — native only (see C) |
-| **3** `ALLOWED_ORIGINS` (dev) | loopback + `qa.entrelares.app` + the per-PR preview pattern (see H) | loopback + `homolog.gestaoim360.com` (see H) | *empty* — native in dev too |
+| **3** `ALLOWED_ORIGINS` (prod) | `https://web.entrelares.app,https://entrelares.app` | `https://app.gestaoim360.com` | `https://desmalha.app` — the account-deletion page (see C) |
+| **3** `ALLOWED_ORIGINS` (dev) | loopback + `qa.entrelares.app` + the per-PR preview pattern (see H) | loopback + `homolog.gestaoim360.com` (see H) | loopback (see H) |
 | **3** `BLOCK_OAUTH_REDIRECT` | `true` | `false` | `false` |
 | **3** `CANARY` | prod `false` · dev `true` | prod `false` · dev `true` | prod `true` (see D) · dev `true` |
 | **3** secrets | — (03.2 · six sets, by hand) | — (03.2 · six sets, by hand) | — (03.2 · six sets, by hand) |
-| **4** clients | app + console + landing Worker (see B) | app (web + Android) | app (Android) |
-| **4** config file | `app/lib/env.dart` · `apps/console_app/lib/env.dart` · `wrangler.jsonc` `PARAMS_URL` (entrelares-site) | `Ambiente` | `lib/env.dart` |
-| **4** `gateway_url_test` | — (03.4, 03.4.2) | — (03.4.3) | — (03.4.4) |
+| **4** clients | app + console + landing Worker (see B) | app (web + Android) | app (Android) + account-deletion page on `desmalha.app` (see C) |
+| **4** config file | `app/lib/env.dart` · `apps/console_app/lib/env.dart` · `wrangler.jsonc` `PARAMS_URL` (entrelares-site) | `Ambiente` | `lib/auth/configuracao_supabase.dart` (`--dart-define`) · `tool/gerar_pagina.ts` (the page) |
+| **4** `gateway_url_test` | — (03.4, 03.4.2) | — (03.4.3) | ✓ desmalha #42 (03.4.4) |
 | **4** `no_supabase_outside_adapters_test` | — (04.1: 3 files; 04.1.2: 4) | — (04.1.3: 20 files) | — (04.1.4: 1 file) |
 | **4** `no_oauth_redirect_test` | — (02.3) | not applicable | not applicable |
 | **5** contract fixtures | two users, two families | two users, no overlap | two accounts |
@@ -473,9 +473,17 @@ one tenant key; the console and the Worker are further runs of step 4 (cards 03.
 the three. Re-measured by card 01.12 (24/09/2026), when the review of the plan against the
 apps found the third client and the renamed repository.
 
-**C. `ALLOWED_ORIGINS = ""` is a value, not a gap.** Desmalha has no web client, and empty
-means *no origin is allowed*, never *all are* (contract §3.5). Left as the one worked
-example of the empty case so nobody "fixes" it.
+**C. A product's public page is a web client** (card 03.4.4, 29/09/2026). Desmalha looked
+native-only, with `ALLOWED_ORIGINS = ""` in both envs — until its account-deletion page,
+the one the Play listing links to, was counted. It is served by Cloudflare Pages
+(`desmalha-site`) at `https://desmalha.app/excluir-conta` and posts to
+`https://api.desmalha.app/functions/v1/excluir-conta`: through the gateway, with the
+production tenant key, and with `https://desmalha.app` on the production list. Posting to
+`<ref>.supabase.co` instead — how it was born — would have been the one piece of the product
+that breaks on a target switch, on the page a store reviewer opens. So: every page a product
+publishes that calls its backend runs step 4 like an app (hostname + tenant key, no target
+URL), and its origin goes on the list of the env it talks to. Empty still means *no origin is
+allowed*, never *all are* (contract §3.5); no tenant carries it today.
 
 **D. Desmalha carries `CANARY = "true"` in production on purpose.** It is the tenant that
 proves the port (R4) and the first to switch target in Phase 05. Deliberate, and stated
@@ -513,8 +521,9 @@ dev web client exists"; by 24/09 two did — `qa.entrelares.app` with a preview 
 request, and `homolog.gestaoim360.com` (already live on 06/09, missed by 03.2). Without them
 every preflight from those builds would answer `403 origin_not_allowed` the day they point
 at `api-dev.<product>`. What still holds: a dev list never repeats a production origin (a
-production build must not talk to a dev target), and Desmalha stays empty in dev for the
-same reason it is empty in production. The per-PR previews use the one kind of pattern the
+production build must not talk to a dev target). Desmalha's dev list is loopback alone
+(card 03.4.4): the account-deletion page is checked end to end from a local build pointed at
+`api-dev.desmalha.app`, and there is no hosted dev channel to add. The per-PR previews use the one kind of pattern the
 contract allows, in dev only (`docs/contract.md` §3.5). `config.test.ts` pins the exact
 lists, refuses a pattern in production and a broad pattern anywhere.
 

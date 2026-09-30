@@ -170,6 +170,10 @@ GoTrue's per-IP limits therefore stay collective behind the gateway, for good.
    24/09/2026: ~20 active users, ordinary refreshes up to ~22 per 5 min; the two largest
    refresh peaks (169 and 101) each came from a single session stuck in a refresh loop.
 
+   Desmalha, prod and dev, set by Irineu on 29/09/2026 with the same three values (card
+   03.4.4). It is pre-launch, so there is no production peak to measure; OTP is its only
+   sign-in, which makes token verifications the bucket that matters.
+
 *The accepted risk (Decisions §3).* Any Worker of any account, or one session in a refresh
 loop, can spend the bucket every user of the product shares, and then sign-in and refresh
 answer `429` for everyone. Detection is `429` in the production auth logs; the reaction is
@@ -280,7 +284,9 @@ on a `GET`.
 ### 3.5 `403` and the CORS rules
 
 `ALLOWED_ORIGINS` is a comma-separated list per env. Empty means **this product has no web
-client** (Desmalha today), not "allow everything".
+client**, not "allow everything". A product's public page that calls the gateway — Desmalha's
+account-deletion page on `https://desmalha.app` (card 03.4.4) — is a web client, and its
+origin is on the list (`docs/tenant-onboarding.md`, note C).
 
 - **Preflight** (`OPTIONS` with `Origin` + `Access-Control-Request-Method`): origin on the
   list → `204` with the CORS headers, `Access-Control-Max-Age`, and no call to the target.

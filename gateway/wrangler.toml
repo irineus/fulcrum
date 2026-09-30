@@ -50,8 +50,9 @@ TENANT = "desmalha"
 TENANT_HOST = "api.desmalha.app"
 TARGET = "supabase"
 CANARY = "true"
-# Native app only — no web origin.
-ALLOWED_ORIGINS = ""
+# The account-deletion page on Cloudflare Pages (card 03.4.4): a product's public page is
+# a web client like any other — docs/tenant-onboarding.md, note C.
+ALLOWED_ORIGINS = "https://desmalha.app"
 BLOCK_OAUTH_REDIRECT = "false"
 
 # ──────────────────────────────────── dev ─────────────────────────────────
@@ -102,6 +103,7 @@ TENANT = "desmalha"
 TENANT_HOST = "api-dev.desmalha.app"
 TARGET = "supabase"
 CANARY = "true"
-# Native app only — no web origin, in dev either.
-ALLOWED_ORIGINS = ""
+# Loopback only: where the account-deletion page is served when its flow is checked
+# against the dev project (card 03.4.4). No hosted dev web channel exists for Desmalha.
+ALLOWED_ORIGINS = "http://localhost:8080,http://127.0.0.1:8080"
 BLOCK_OAUTH_REDIRECT = "false"
