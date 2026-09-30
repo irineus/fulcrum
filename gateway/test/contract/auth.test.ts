@@ -1,5 +1,14 @@
 import { beforeAll, describe, expect, it } from 'vitest';
-import { CONFIGURED, DIRECT, HAS_USERS, NOT_CONFIGURED, TENANT, USER_A, USES_OTP } from './env';
+import {
+  CONFIGURED,
+  DIRECT,
+  HAS_USERS,
+  NOT_CONFIGURED,
+  TENANT,
+  USER_A,
+  USER_B,
+  USES_OTP,
+} from './env';
 import { call, GATEWAY, signIn, TARGET, WAYS, type Session, type Way } from './http';
 
 /**
@@ -22,12 +31,18 @@ describe.skipIf(skipAll)(`auth ${skipAll ? `— skipped: ${why}` : direct}`, () 
     it('signInWithPassword returns a usable session for user A', () => {
       // entrelares-app app/lib/main.dart:1153
       //   await _client.auth.signInWithPassword(email: email, password: password);
+      // desmalha apps/desmalha_app/lib/auth/porta_auth_supabase.dart:56 signs in by code —
+      //   final resposta = await _auth.verifyOTP(email: email, token: codigo, type: OtpType.email);
+      // — which cannot run without an inbox (group 4); the password is the fixture's way to
+      // the SAME session shape, and everything after sign-in is the app's own call.
       expect(session.access_token.split('.')).toHaveLength(3);
       expect(session.refresh_token).not.toBe('');
       expect(session.user.email.toLowerCase()).toBe(USER_A.email.toLowerCase());
     });
 
     it('the session reads the user back — the JWT crossed untouched (contract §2.1)', async () => {
+      // desmalha porta_auth_supabase.dart:97 — final resposta = await _auth.getUser();
+      // gotrue-dart: GET /auth/v1/user with the session's JWT.
       const res = await call(way, '/auth/v1/user', { jwt: session.access_token });
       expect(res.status).toBe(200);
       expect((res.json as { id: string }).id).toBe(session.user.id);
@@ -44,6 +59,13 @@ describe.skipIf(skipAll)(`auth ${skipAll ? `— skipped: ${why}` : direct}`, () 
       const next = res.json as Session;
       expect(next.access_token).not.toBe(session.access_token);
       expect(next.user.id).toBe(session.user.id);
+    });
+
+    it('user B signs in too — every two-user group depends on it', async () => {
+      // The fixture pair of docs/testing.md §3.3. A refusal here names GoTrue's
+      // `error_code` (http.ts) — `invalid_credentials` means B's secret is wrong.
+      const b = await signIn(way, USER_B);
+      expect(b.user.id).not.toBe(session.user.id);
     });
   });
 
@@ -77,17 +99,15 @@ describe.skipIf(skipAll)(`auth ${skipAll ? `— skipped: ${why}` : direct}`, () 
   });
 
   describe('group 4 — auth/otp', () => {
-    it.skipIf(!USES_OTP)(
-      `the OTP request is accepted${USES_OTP ? '' : ` [skipped: tenant "${TENANT}" does not sign in by GoTrue OTP — no signInWithOtp/verifyOTP in its app (git grep, 24/09/2026); the group runs for Desmalha, porta_auth_supabase.dart, when it joins the matrix]`}`,
-      async () => {
-        // desmalha lib/.../porta_auth_supabase.dart — signInWithOtp(email: …) →
-        // POST /auth/v1/otp {email, create_user:false}. Without an inbox the verify half
-        // cannot run against a dev project (docs/testing.md §3.2, the honest limit).
-        const res = await call(GATEWAY, '/auth/v1/otp', {
-          body: { email: USER_A.email, create_user: false },
-        });
-        expect(res.status).toBe(200);
-      },
-    );
+    // desmalha porta_auth_supabase.dart:48 — _auth.signInWithOtp(email: email, shouldCreateUser: true)
+    // → POST /auth/v1/otp. Accepting the request MAILS a code through the product's SMTP,
+    // and the verify half needs that code back from the mailbox. The CI has no inbox for a
+    // fixture address: the first Desmalha runs got a 500 from GoTrue on the request (run
+    // 36573000867, 29/09/2026), and a nightly mail would spend the product's sending quota
+    // for nothing (docs/testing.md §3.2, the honest limit; card 03.3.2).
+    const reason = USES_OTP
+      ? `[skipped: tenant "${TENANT}" signs in by OTP, but the CI has no inbox — requesting a code mails it through the product's SMTP, and verifying needs it back (docs/testing.md §3.2)]`
+      : `[skipped: tenant "${TENANT}" does not sign in by GoTrue OTP — no signInWithOtp/verifyOTP in its app (git grep, 24/09/2026)]`;
+    it.skip(`the OTP request is accepted and the code verifies ${reason}`, () => {});
   });
 });
