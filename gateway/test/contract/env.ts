@@ -3,8 +3,8 @@
  * which the workflow maps from a tenant's secrets so no test file ever names a tenant.
  *
  * A tenant without contract secrets does not fail: every group skips, green, and says why
- * (card 03.3, decided by Irineu 24/09/2026). Only Entrelares has fixtures today; Gestão
- * IM360 and Desmalha join the matrix in their own migration cards (onboarding step 5).
+ * (card 03.3, decided by Irineu 24/09/2026). Entrelares (03.3) and Desmalha (03.3.2) have
+ * fixtures; Gestão IM360 joins in its own migration card (onboarding step 5).
  */
 
 const read = (name: string) => (process.env[name] ?? '').trim();

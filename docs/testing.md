@@ -114,7 +114,7 @@ privileged key would prove nothing about what a user can do (R2).
 | 8 | `rest/pagination` | `Range` and `Prefer: count=exact` take effect; `Content-Range` survives | §2.1 §2.2 | user A with enough rows | `*_repositorio.dart` |
 | 9 | `rest/rpc` | an RPC answers, and `ELEVATION_REQUIRED:` reaches the app intact | §2.2 §5 | operator user | `console_api.dart` |
 | 10 | `functions` | `/functions/v1/*` is forwarded with the user's JWT untouched | §1.1 §2.1 | user A | the billing and `elevate` calls |
-| 11 | `storage` | upload and download stream; byte ranges and `x-upsert` work | §1.1 §2.1 | user A + a bucket | the encrypted-backup upload |
+| 11 | `storage` | upload and download stream; byte ranges work; no overwrite; B cannot touch A's folder | §1.1 §2.1 | users A and B + a bucket | `porta_armazenamento_backup_http.dart` |
 | 12 | `webhooks` | `/webhooks/<name>` reaches `/functions/v1/<name>` with no `apikey` | §1.3 | none | *the contract itself* |
 
 Twelve groups, twelve sections of the contract accounted for. The mapping is one-way and
@@ -180,14 +180,43 @@ no billing event is ever sent.
   a day at most 24 months ahead, and `notes` must be null ("A observação do dia virou a
   agenda") — the insert now mirrors what the app sends today.
 - **`storage`:** written as a shape and **skipped with its reason** until a tenant with a
-  bucket (Desmalha) has fixtures.
+  bucket (Desmalha) has fixtures — which card 03.3.2 brought (below).
+
+**What landed next (card 03.3.2, 29/09/2026)** — Desmalha joins the `supabase-dev` matrix,
+through `api-dev.desmalha.app` and directly against `caqxssmxeiuutfguxdzj.supabase.co`, and
+`storage` stops being skipped. Every Desmalha call is copied from desmalha
+`apps/desmalha_app/lib/` at origin/main `3f5d12b`, the adapter named on each test.
+
+- **`rest` has one block per tenant.** Desmalha's: the backup metadata without a session is
+  `401 42501` (byte for byte both ways); the public catalogue reads anonymously exactly as
+  `porta_catalogo_rest.dart` reads it, gateway body equal to direct body; B registers one
+  backup's metadata (`registrarMetadado`, a sequence number the app will not reach for
+  decades), A neither sees it nor deletes it, the same sequence twice is the `409 23505`
+  the adapter reads as a conflict, and B removes it. Groups 8 and 9 skip for Desmalha with
+  the reason: no adapter pages a list, and its one RPC records a legal acceptance.
+- **`storage` is the encrypted backup** (`porta_armazenamento_backup_http.dart`): upload
+  with `x-upsert: false`, a second upload refused (the bucket has no UPDATE policy — the
+  03.3.1 shape expected an `x-upsert: true` replace, which the only app with a bucket
+  forbids), download byte for byte, a `Range` download `206` with its `Content-Range`, the
+  list of A's folder empty for B, B refused reading and writing A's folder, the object
+  removed. Nothing is left in the bucket.
+- **`auth/password` also signs in user B**, so a wrong fixture secret fails on the auth
+  group, by name, and a refused sign-in reports GoTrue's `error_code`
+  (`invalid_credentials`), never the request.
+- **`auth/otp` is skipped for Desmalha too**, with the reason. Requesting a code mails it
+  through the product's SMTP: the first Desmalha runs got a `500` from GoTrue on the request
+  (run [36573000867](https://github.com/irineus/fulcrum/actions/runs/36573000867)), and a
+  nightly mail to an address nobody reads would spend the sending quota for nothing.
+- **CORS runs for Desmalha** from `http://localhost:8080`, the loopback card 03.4.4 put on
+  `desmalha-dev` for the account-deletion page.
 
 **Two honest limits, written down rather than discovered later:**
 
 - **`auth/otp` needs an inbox.** Reading the code back requires mail access. The `local`
   matrix has one (the mail catcher `supabase start` brings up), so the full
-  request → read → verify path runs there. Against `supabase-dev` there is no inbox: the
-  group asserts only that the request is accepted, and says so in a skip message. A group
+  request → read → verify path runs there. Against `supabase-dev` there is no inbox, and
+  the request alone is not free — it mails a code through the product's SMTP (card
+  03.3.2) — so the group is skipped with that reason. A group
   that silently tests less than its name suggests is worse than a skipped one.
 - **`storage` and `functions` touch a real target's quota.** They stay small and clean up
   after themselves; a suite that fills a dev bucket every night is a suite someone
@@ -316,8 +345,12 @@ Step 5 of `docs/tenant-onboarding.md` (card 01.6), in full:
 3. Add the tenant to the matrix's tenant axis in the workflow.
 4. Run `workflow_dispatch` once and read the result before calling the tenant onboarded.
 
-No test file changes. If onboarding a tenant requires editing an assertion, the assertion
-was tenant-specific and should not have been.
+No shared assertion changes. If onboarding a tenant requires editing an assertion another
+tenant also runs, the assertion was tenant-specific and should not have been. What a tenant
+does add is **its own block** where the calls are its adapters' (`rest`, `storage`): §2
+makes every such assertion a copied call, and a product's calls are its own. Desmalha
+(card 03.3.2) is the worked example — its block sits beside Entrelares' and neither
+touches the other.
 
 ---
 

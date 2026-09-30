@@ -7,9 +7,9 @@ name: Contract
 # target (Decisions §6).
 #
 # Per tenant, the workflow maps secrets onto the flat names of §3.1, so no test file ever
-# names a tenant. A tenant without contract secrets SKIPS, green, with a notice — only
-# Entrelares has fixtures today; the others join in their migration cards (onboarding
-# step 5: two users, six secrets, one matrix row).
+# names a tenant. A tenant without contract secrets SKIPS, green, with a notice. Entrelares
+# (03.3) and Desmalha (03.3.2) have fixtures; Gestão IM360 joins in its migration card
+# (onboarding step 5: two users, six secrets, one matrix row).
 
 on:
   schedule:
@@ -52,8 +52,8 @@ jobs:
           - tenant: desmalha
             secret: DESMALHA
             fulcrum_url: https://api-dev.desmalha.app
-            target_url: ""
-            allowed_origin: ""
+            target_url: https://caqxssmxeiuutfguxdzj.supabase.co
+            allowed_origin: http://localhost:8080
             blocks_oauth: "false"
             uses_otp: "true"
     env:
