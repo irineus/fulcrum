@@ -60,13 +60,14 @@ describe.skipIf(skipAll)(`auth ${skipAll ? `— skipped: ${why}` : direct}`, () 
       expect(next.access_token).not.toBe(session.access_token);
       expect(next.user.id).toBe(session.user.id);
     });
+  });
 
-    it('user B signs in too — every two-user group depends on it', async () => {
-      // The fixture pair of docs/testing.md §3.3. A refusal here names GoTrue's
-      // `error_code` (http.ts) — `invalid_credentials` means B's secret is wrong.
-      const b = await signIn(way, USER_B);
-      expect(b.user.id).not.toBe(session.user.id);
-    });
+  it.each(WAYS)('user B signs in too — every two-user group depends on it — $name', async (way) => {
+    // The fixture pair of docs/testing.md §3.3, on its own so a refusal names the user: a
+    // refused sign-in reports GoTrue's `error_code` (http.ts), and `invalid_credentials`
+    // means that user's secret is wrong.
+    const b = await signIn(way, USER_B);
+    expect(b.user.email.toLowerCase()).toBe(USER_B.email.toLowerCase());
   });
 
   describe('group 3 — auth/id_token', () => {
