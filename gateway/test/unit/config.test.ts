@@ -135,8 +135,8 @@ describe('wrangler.toml — six envs, production and dev per tenant', () => {
   it.each(DEV_ENVS)('%s allows loopback, https dev channels and nothing of production', (name) => {
     // Card 03.2.1 (24/09/2026) superseded "loopback only" (08/09): hosted dev web channels
     // exist. Still never a production origin — that would let a production build talk to
-    // a dev target, the mixture per-tenant dev envs exist to end. Empty means NO web
-    // client (Desmalha), never "allow all" — `docs/contract.md` §3.5.
+    // a dev target, the mixture per-tenant dev envs exist to end. Empty would mean NO web
+    // client, never "allow all" — `docs/contract.md` §3.5.
     const production = originsOf(name.replace(/-dev$/, ''));
     for (const origin of originsOf(name)) {
       expect(origin).toMatch(/^(http:\/\/(localhost|127\.0\.0\.1)(:\d+)?|https:\/\/\S+)$/);
@@ -152,7 +152,18 @@ describe('wrangler.toml — six envs, production and dev per tenant', () => {
       'https://pr-*.entrelares-web-qa.pages.dev',
     ]);
     expect(originsOf('gestaoim360-dev')).toEqual([...LOOPBACK, 'https://homolog.gestaoim360.com']);
-    expect(originsOf('desmalha-dev')).toEqual([]);
+    expect(originsOf('desmalha-dev')).toEqual(LOOPBACK);
+  });
+
+  it('names exactly the production web clients that exist (card 03.4.4)', () => {
+    // A product's public page is a web client (docs/tenant-onboarding.md, note C): the
+    // Desmalha account-deletion page on Cloudflare Pages posts to api.desmalha.app.
+    expect(originsOf('entrelares')).toEqual([
+      'https://web.entrelares.app',
+      'https://entrelares.app',
+    ]);
+    expect(originsOf('gestaoim360')).toEqual(['https://app.gestaoim360.com']);
+    expect(originsOf('desmalha')).toEqual(['https://desmalha.app']);
   });
 
   it.each(ALL_ENVS)('%s carries only narrow patterns', (name) => {
