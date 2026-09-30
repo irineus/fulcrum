@@ -1,4 +1,4 @@
-import { DIRECT, FULCRUM_URL, TARGET_KEY, TARGET_URL, TENANT_KEY } from './env';
+import { DIRECT, FULCRUM_URL, TARGET_KEY, TARGET_URL, TENANT_KEY, USER_A, USER_B } from './env';
 
 /**
  * A client speaking what the apps speak (docs/testing.md §3): plain `fetch`, the headers
@@ -96,7 +96,9 @@ export async function signIn(
     // without echoing anything of the request — safe for a public log, and the difference
     // between "the fixture's secret is wrong" and "the project refuses passwords".
     const code = (answer.json as { error_code?: string } | undefined)?.error_code ?? '?';
-    throw new Error(`sign-in ${way.name} answered ${answer.status} (${code})`);
+    // Which fixture, never its address: A or B is all a public log needs to name the secret.
+    const who = user.email === USER_A.email ? 'A' : user.email === USER_B.email ? 'B' : '?';
+    throw new Error(`sign-in of user ${who} ${way.name} answered ${answer.status} (${code})`);
   }
   return answer.json as Session;
 }
