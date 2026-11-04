@@ -351,25 +351,40 @@ bypassed.
 
 ## Monitor (card 08.1)
 
-`.github/workflows/monitor.yml` probes every 5 minutes. GitHub is not Cloudflare, so whoever
-watches stays outside the thing watched.
+Whoever watches stays outside the thing watched: neither GitHub nor the uptime service is
+Cloudflare. Since 04/11/2026 (owner) the watch has two layers:
 
-**The 5 minutes are a loop inside the job, not the cron** (owner, 28/09/2026). Measured here:
-in the ~11 h after the workflow landed, GitHub's scheduler fired its 5-minute cron **once**,
-and this repository's daily crons run 5–6 h late. So each scheduled run probes, sleeps to the
-next 5-minute mark and probes again for about 5 h 45 (a job may run 6 h; minutes are free on
-a public repository), and the next scheduled run waits queued behind it
-(`cancel-in-progress: false`) — the watch stays continuous as long as the scheduler fires at
-least once in ~6 h. It then went **6 h 30 min without firing at all**, so the monitor
-**chains itself**: a looping run ends by dispatching the next looping run
-(`gh workflow run monitor.yml -f loop=true`, the one event `GITHUB_TOKEN` may trigger — hence
-`actions: write`), and the cron is only the net that restarts the chain if a run dies before
-handing over. A manual dispatch makes a single pass unless `loop` is ticked; ticking it is
-also how the chain is started by hand.
+- **Every 5 minutes — UptimeRobot** (free plan: 50 monitors, 5-minute interval, keyword
+  monitors, commercial use allowed), login `irineus@gmail.com`, dashboard
+  <https://dashboard.uptimerobot.com/monitors>. It e-mails the owner when a monitor goes
+  down and again when it comes back. It cannot send the tenant key (custom headers are not
+  part of the free plan), so it watches the four key-free URLs below.
+- **Once a day — `.github/workflows/monitor.yml`**: one pass over the three `/health` plus
+  `/auth/v1/settings` with the tenant key — the key swap and GoTrue end to end, the one check
+  the external service cannot make. About 1 billed minute a day.
 
-**To stop the monitor**, disable the workflow (*Actions → Monitor → ⋯ → Disable workflow*, or
-`gh workflow disable monitor.yml --repo irineus/fulcrum`). Cancelling the running run is not
-enough: the next one is already queued.
+**Why the 5 minutes left GitHub Actions.** From 28/09 to 04/11/2026 the workflow ran the
+5 minutes as a loop inside the job (GitHub's scheduler fired a `*/5` cron once in ~11 h): each
+run looped for 5 h 45 and dispatched its successor. One job was therefore always running —
+**~1,760 billed minutes a day**. Free on a public repository; but with the repositories made
+private on 01/11 it spent the account's 2,000 monthly minutes by 02/11 12:21 UTC, and every
+workflow of every product (Entrelares, Gestão, Desmalha) failed to start until they went
+public again. `test/unit/monitor.test.ts` refuses a loop, a `sleep` to the next mark, a
+self-dispatch and a timeout above 5 minutes.
+
+| UptimeRobot monitor (type *Keyword*, interval 5 min) | URL | Keyword, alert when |
+|---|---|---|
+| `Fulcrum — entrelares /health` | `https://api.entrelares.app/health` | `"tenant":"entrelares"` — *not exists* |
+| `Fulcrum — gestaoim360 /health` | `https://api.gestaoim360.com/health` | `"tenant":"gestaoim360"` — *not exists* |
+| `Fulcrum — desmalha /health` | `https://api.desmalha.app/health` | `"tenant":"desmalha"` — *not exists* |
+| `Fulcrum — entrelares target` | `https://api.entrelares.app/webhooks/public-settings` | `"values"` — *not exists* |
+
+The fourth crosses the gateway to the target through the key-exempt webhook route
+(contract §1.3): the Entrelares function `public-settings` answers `{"values":{…}}`. Red there
+with the three `/health` green reads "gateway up, target down", like `/auth/v1/settings` below.
+A non-2xx answer or a timeout also counts as down.
+
+The workflow's probes:
 
 | Probe | Proves | Expects |
 |---|---|---|
@@ -392,11 +407,11 @@ of `wrangler.toml` must be probed) and the one-issue rule.
 
 ### When the issue arrives
 
-A failure opens **one** issue labelled `monitor` (or comments the open one) with each
-failing `host/path → status`, and comments again only when *what* fails changes — a long
-outage is one e-mail, not one every 5 minutes; GitHub e-mails the owner for both. The first
-all-green pass comments the recovery and closes it. A run in which any pass failed ends red.
-Reading the status:
+UptimeRobot e-mails *Monitor is DOWN* / *Monitor is UP* per monitor. The daily workflow opens
+**one** issue labelled `monitor` (or comments the open one) with each failing
+`host/path → status` — a long outage is one comment a day; GitHub e-mails the owner for both.
+The first all-green run comments the recovery and closes it; a run with a failure ends red.
+Reading the status (the workflow's codes; UptimeRobot shows the same code in the incident):
 
 | Status | Where | Most likely | First look |
 |---|---|---|---|
@@ -411,15 +426,15 @@ target down" (§Checking a deploy).
 
 ### Evidence and upkeep
 
-- **The 7 days of card 03.6** are this workflow's history:
-  `gh run list --repo irineus/fulcrum --workflow monitor.yml --limit 100` (and the Actions
-  tab filtered by *Monitor*). Two readings, both needed: no red run, and no **gap** — each
-  run covers ~5 h 45 from its start, so the start of one run to the start of the next must
-  stay under ~6 h; a longer gap is time nobody watched, and is reported as such.
+- **The 7 days of card 03.6** were read from this workflow's history while it looped
+  (28/09–04/11/2026). From 04/11/2026 the continuous record is UptimeRobot's (each monitor's
+  uptime and incident log); the workflow's history shows one pass a day:
+  `gh run list --repo irineus/fulcrum --workflow monitor.yml --limit 30`.
 - **Testing the alert:** *Actions → Monitor → Run workflow* with `drill` checked adds a
   probe of `/monitor-drill`, which answers the gateway's own `404 unknown_route`; the run
-  goes red and opens the issue, and the next scheduled run closes it. Done once on purpose
-  by card 08.1.
+  goes red and opens the issue, and the next green run closes it (*Run workflow* again
+  without `drill`). Done once on purpose by card 08.1. UptimeRobot's alert is tested from its
+  own dashboard (the monitor's *Test notification*).
 - **GitHub disables a scheduled workflow after 60 days without activity in a public
   repository**, with an e-mail. A quiet Fulcrum is exactly that — re-enable it on the
   Actions tab (*Monitor → Enable workflow*) or with `gh workflow enable monitor.yml`.

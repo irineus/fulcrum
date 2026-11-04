@@ -1,38 +1,27 @@
 name: Monitor
 
-# Card 08.1 — the external watch on the three production gateways.
+# Card 08.1 — the external watch on the three production gateways, in two layers since
+# 04/11/2026 (owner):
 #
-# Whoever watches stays outside the thing watched: GitHub is not Cloudflare, so a Cloudflare
-# outage is seen from here (Decisions §3). Every 5 minutes:
-#   · `/health` on the three production hosts, with the `tenant` it answers checked — the
-#     Worker is up and serving THAT tenant's env. `/health` never touches the target.
-#   · `GET /auth/v1/settings` on api.entrelares.app with the tenant key — the one path that
-#     crosses the gateway to the target (key check, key swap, GoTrue answering). Entrelares
-#     only: it is the one tenant with clients behind the gateway today; Gestão and Desmalha
-#     join the day theirs are (03.4.3, 03.4.4).
-# A probe that fails is tried once more after 10 s, so one lost packet is not an incident.
+#   · EVERY 5 MINUTES — an external uptime service (UptimeRobot, free plan), outside GitHub
+#     and outside Cloudflare: keyword checks on the three `/health` and on
+#     `api.entrelares.app/webhooks/public-settings`, the key-exempt route that crosses the
+#     gateway to the target. It e-mails the owner. Its monitors and their exact settings are
+#     `docs/runbook.md` §Monitor.
+#   · ONCE A DAY — this workflow: one pass over the same `/health` plus
+#     `GET /auth/v1/settings` with the tenant key, the one check the external service cannot
+#     make (it needs the key in two headers), proving the key swap and GoTrue end to end.
 #
-# THE 5 MINUTES ARE A LOOP INSIDE THE JOB, not the cron (owner, 28/09/2026). Measured on
-# this repository: in the ~11 h after this workflow landed, GitHub's scheduler fired the
-# `*/5`-style cron ONCE (07:37 UTC), and the daily crons here run 5–6 h late. So a scheduled
-# run probes, sleeps to the next 5-minute mark and probes again for LOOP_MINUTES (≈5 h 45 —
-# a job may run 6 h; minutes are free on a public repository), and the cron only has to
-# fire once in ~6 h for the watch to stay continuous. `cancel-in-progress: false` keeps the
-# next run queued behind the running one.
-#
-# AND IT CHAINS ITSELF (28/09/2026): after that, the scheduler went 6 h 30 min without firing
-# at all. So a looping run ends by dispatching the next looping run (`workflow_dispatch` is the
-# one event GITHUB_TOKEN may trigger, hence `actions: write`), and the cron is only the net
-# that restarts the chain if a run dies before dispatching. One run at a time, one successor
-# each: the concurrency group keeps a single pending run. To STOP the monitor, disable the
-# workflow (Actions → Monitor → ⋯ → Disable workflow); cancelling a run alone does not stop
-# the next one.
+# WHY NOT EVERY 5 MINUTES HERE ANY MORE. From 28/09 to 04/11/2026 this workflow ran a 5 h 45
+# loop that dispatched its successor, so one job was always running: ~1,760 billed minutes a
+# day. With the repositories private on 01/11 it spent the account's 2,000 monthly minutes
+# by 02/11 12:21 UTC and blocked every workflow of every repository (Entrelares, Gestão,
+# Desmalha) until they went public again. A loop that never ends, or a self-dispatch, must
+# not come back — `test/unit/monitor.test.ts` holds that.
 #
 # On failure: ONE open issue labelled `monitor` — opened, or commented if already open — with
-# host, path and status code, and commented again only when WHAT fails changes (a long outage
-# is one e-mail, not one every 5 minutes). GitHub e-mails the owner for both. The first
-# all-green pass closes it. A run in which any pass failed ends red, so "no red run" in the
-# history stays the evidence of card 03.6's "7 days of green /health".
+# host, path and status code. GitHub e-mails the owner for both. An all-green pass closes it.
+# A failed pass ends red.
 #
 # PUBLIC repository, so the log is public: it prints host, path, status and time — never the
 # key and never a response body. The key is the tenant's PUBLIC key, and it is still read
@@ -41,29 +30,23 @@ name: Monitor
 # the target probe is off and the run says so. `test/unit/monitor.test.ts` reads this file as
 # data and holds all of it.
 #
-# A manual dispatch makes ONE pass (no loop) unless `loop` is ticked — which is how the chain
-# dispatches itself, and how it is started by hand. `drill` adds one probe that must fail —
-# `/monitor-drill` answers the gateway's own `404 unknown_route` — to prove the alert path end
-# to end; the next green pass closes the issue it opened.
+# `drill` adds one probe that must fail — `/monitor-drill` answers the gateway's own
+# `404 unknown_route` — to prove the alert path end to end; the next green pass closes the
+# issue it opened.
 
 on:
   schedule:
-    # Off the top of the hour, where GitHub's scheduler is most loaded. Frequent on purpose:
-    # each firing is one more chance for the scheduler to start the next loop.
-    - cron: '2-59/5 * * * *'
+    # Once a day, off the top of the hour. GitHub runs this repository's daily crons hours
+    # late; for a daily check that is fine — the 5-minute watch is the external service.
+    - cron: '41 7 * * *'
   workflow_dispatch:
     inputs:
       drill:
         description: 'Provoke one failing probe to test the alert (opens the issue)'
         type: boolean
         default: false
-      loop:
-        description: 'Loop for ~5 h 45 and dispatch the next run (the self-chaining monitor)'
-        type: boolean
-        default: false
 
 permissions:
-  actions: write
   contents: read
   issues: write
 
@@ -74,16 +57,15 @@ concurrency:
 jobs:
   probe:
     runs-on: ubuntu-latest
-    # GitHub's ceiling for a job; the loop stops at LOOP_MINUTES, well before it.
-    timeout-minutes: 360
+    # One pass takes seconds; a hung curl is capped at 15 s per try.
+    timeout-minutes: 5
     env:
       KEY: ${{ secrets.FULCRUM_MONITOR_ENTRELARES_KEY }}
       DRILL: ${{ inputs.drill || false }}
-      LOOP_MINUTES: ${{ (github.event_name == 'schedule' || inputs.loop) && 345 || 0 }}
       GH_TOKEN: ${{ github.token }}
       RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
     steps:
-      - name: Probe the production gateways, every 5 minutes
+      - name: Probe the production gateways, once
         run: |
           # NO `-e`, on purpose and explicitly: the runner starts bash with `-e`, and a failing
           # probe must be recorded, not end the step before the next host is probed.
@@ -115,7 +97,7 @@ jobs:
               --json number --jq '.[0].number // empty'
           }
 
-          # One issue per incident: opened, or commented when what fails changed.
+          # One issue per incident: opened, or commented on while it lasts.
           report() {
             {
               echo "**$(date -u '+%Y-%m-%d %H:%M UTC')** — probe(s) failing, each after one retry:"
@@ -151,45 +133,24 @@ jobs:
             fi
           }
 
-          deadline=$(( $(date +%s) + LOOP_MINUTES * 60 ))
-          any_red=0
-          last_state=first
-          while :; do
-            echo "── pass at $(date -u '+%H:%M:%S UTC')"
-            : > failures.txt
-            probe api.entrelares.app /health '.tenant == "entrelares"'
-            probe api.gestaoim360.com /health '.tenant == "gestaoim360"'
-            probe api.desmalha.app /health '.tenant == "desmalha"'
-            if [ -n "$KEY" ]; then
-              probe api.entrelares.app /auth/v1/settings '.external != null' \
-                -H "apikey: $KEY" -H "Authorization: Bearer $KEY"
-            else
-              echo "::notice::the secret FULCRUM_MONITOR_ENTRELARES_KEY is not set — the target probe is off"
-            fi
-            if [ "$DRILL" = true ]; then
-              echo "Drill: one probe that must fail"
-              probe api.entrelares.app /monitor-drill 'true'
-            fi
-
-            if [ -s failures.txt ]; then
-              any_red=1
-              state=$(tr '\n' ';' < failures.txt)
-              [ "$state" != "$last_state" ] && report
-              last_state=$state
-            else
-              [ -n "$last_state" ] && close_if_open
-              last_state=
-            fi
-
-            now=$(date +%s)
-            [ "$now" -ge "$deadline" ] && break
-            # Sleep to the next 5-minute mark of the run, however long this pass took.
-            sleep $(( 300 - (now % 300) ))
-          done
-          # The chain: a looping run hands over to the next before it ends, red or green.
-          if [ "$LOOP_MINUTES" -gt 0 ]; then
-            gh workflow run monitor.yml --repo "$GITHUB_REPOSITORY" --ref main -f loop=true \
-              && echo "Next looping run dispatched" \
-              || echo "::warning::could not dispatch the next run — the cron will restart the chain"
+          echo "── pass at $(date -u '+%H:%M:%S UTC')"
+          : > failures.txt
+          probe api.entrelares.app /health '.tenant == "entrelares"'
+          probe api.gestaoim360.com /health '.tenant == "gestaoim360"'
+          probe api.desmalha.app /health '.tenant == "desmalha"'
+          if [ -n "$KEY" ]; then
+            probe api.entrelares.app /auth/v1/settings '.external != null' \
+              -H "apikey: $KEY" -H "Authorization: Bearer $KEY"
+          else
+            echo "::notice::the secret FULCRUM_MONITOR_ENTRELARES_KEY is not set — the target probe is off"
           fi
-          exit $any_red
+          if [ "$DRILL" = true ]; then
+            echo "Drill: one probe that must fail"
+            probe api.entrelares.app /monitor-drill 'true'
+          fi
+
+          if [ -s failures.txt ]; then
+            report
+            exit 1
+          fi
+          close_if_open
