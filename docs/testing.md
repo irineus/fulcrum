@@ -201,7 +201,9 @@ through `api-dev.desmalha.app` and directly against `caqxssmxeiuutfguxdzj.supaba
   03.3.1 shape expected an `x-upsert: true` replace, which the only app with a bucket
   forbids), download byte for byte, a `Range` download `206` with its `Content-Range`, the
   list of A's folder empty for B, B refused reading and writing A's folder, the object
-  removed. Nothing is left in the bucket.
+  removed. Nothing is left in the bucket. "Removed" is read from the listing at once; the
+  download is polled for up to 90 s, because the target's CDN keeps serving a deleted object
+  for about a minute, through the gateway and directly alike (04/11/2026: ~56–57 s).
 - **`auth/password` also signs in user B**, so a wrong fixture secret fails on the auth
   group, by name, and a refused sign-in reports GoTrue's `error_code`
   (`invalid_credentials`), never the request.

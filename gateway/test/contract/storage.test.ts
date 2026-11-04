@@ -161,11 +161,26 @@ describe.skipIf(skipAll)(`group 11 — storage${skipAll ? ` — skipped: ${why}`
       expect(res.status).not.toBe(200);
     });
 
+    // The listing is the Storage's own record and answers at once. The download does not: the
+    // target's CDN keeps serving a deleted object until its cache is invalidated — measured
+    // 04/11/2026 (runs 41857884307, 41858316557): still 200 for ~56–57 s, through the gateway
+    // and directly alike (the nightly went red on every run that re-created the same path).
+    // So the download is polled, up to 90 s, and the log says how long it stayed readable.
     it('A removes it, and it is gone', async () => {
       const res = await removeObjects(way, a(way), [own()]);
       expect(res.status).toBe(200);
-      expect((await download(way, a(way), own())).status).not.toBe(200);
-    });
+      const mine = await list(way, a(way), a(way).user.id);
+      const names = (JSON.parse(mine.text) as { name: string }[]).map((o) => o.name);
+      expect(names).not.toContain(`${seq}.dsmb`);
+      const started = Date.now();
+      let status = (await download(way, a(way), own())).status;
+      while (status === 200 && Date.now() - started < 90_000) {
+        await new Promise((done) => setTimeout(done, 5_000));
+        status = (await download(way, a(way), own())).status;
+      }
+      console.log(`${way.name}: download ${status} ${Date.now() - started} ms after the DELETE`);
+      expect(status).not.toBe(200);
+    }, 120_000);
   });
 
   it.skipIf(!DIRECT)("B's refusal arrives byte for byte — gateway equals direct (§5)", async () => {
