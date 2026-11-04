@@ -14,8 +14,8 @@ import { call, GATEWAY, raw, signIn, TARGET, WAYS, type Way } from './http';
 /**
  * Groups 10 and 12 — `functions` and `webhooks` (docs/testing.md §3.2; card 03.3.1). The
  * functions are Entrelares', from entrelares-app `supabase/functions/` at origin/main
- * (24/09/2026); only Entrelares has fixtures today, so for another tenant the block says
- * skipped and why. Nothing here changes data: every call is a read, or a request the
+ * (24/09/2026); they are Entrelares' calls, so for another tenant the block says skipped
+ * and why. Nothing here changes data: every call is a read, or a request the
  * function refuses before doing anything — never a real billing event (owner decision 9).
  */
 
