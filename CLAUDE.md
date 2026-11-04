@@ -167,7 +167,7 @@ backup/                  pg_dump_r2.sh, restore_check.sh — what the workflows 
 packages/fulcrum_client/ optional pure-Dart package                       (06.1)
 docs/                    contract.md (01.5) · tenant-onboarding.md (01.6) · testing.md (01.7) · runbook.md (03.2, 04.2, 04.4, 08.2)
 .github/workflows/       ci.yml (01.4) · deploy (03.2) · pg_dump_r2.yml + restore_check.yml (04.2)
-                         · monitor.yml — /health of the 3 prod hosts every 5 min, issue on failure (08.1)
+                         · monitor.yml — one daily pass, issue on failure; the 5 min are UptimeRobot (08.1)
 .githooks/commit-msg     keeps `Backlog:` a real trailer; installed by tool/setup_env.sh
 .gitattributes           `* text=auto eol=lf` — LF on every checkout, any OS   (01.9)
 ```
