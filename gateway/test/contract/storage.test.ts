@@ -161,11 +161,25 @@ describe.skipIf(skipAll)(`group 11 — storage${skipAll ? ` — skipped: ${why}`
       expect(res.status).not.toBe(200);
     });
 
+    // The listing is the Storage's own record and answers at once. The download can still be
+    // 200 for a while after the DELETE (04/11/2026: green on the run that first created the
+    // path, red on the two that re-created it minutes later), so it is polled — up to 60 s —
+    // and the log says how long the object stayed readable.
     it('A removes it, and it is gone', async () => {
       const res = await removeObjects(way, a(way), [own()]);
       expect(res.status).toBe(200);
-      expect((await download(way, a(way), own())).status).not.toBe(200);
-    });
+      const mine = await list(way, a(way), a(way).user.id);
+      const names = (JSON.parse(mine.text) as { name: string }[]).map((o) => o.name);
+      expect(names).not.toContain(`${seq}.dsmb`);
+      const started = Date.now();
+      let status = (await download(way, a(way), own())).status;
+      while (status === 200 && Date.now() - started < 60_000) {
+        await new Promise((done) => setTimeout(done, 5_000));
+        status = (await download(way, a(way), own())).status;
+      }
+      console.log(`${way.name}: download ${status} ${Date.now() - started} ms after the DELETE`);
+      expect(status).not.toBe(200);
+    }, 90_000);
   });
 
   it.skipIf(!DIRECT)("B's refusal arrives byte for byte — gateway equals direct (§5)", async () => {
