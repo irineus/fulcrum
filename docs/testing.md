@@ -178,7 +178,9 @@ no billing event is ever sent.
   key in the query string, a heartbeat, and the `INSERT` event of a row user A creates and
   the test deletes. Two app rules shaped the row, both captured from the target as `23514`:
   a day at most 24 months ahead, and `notes` must be null ("A observação do dia virou a
-  agenda") — the insert now mirrors what the app sends today.
+  agenda") — the insert now mirrors what the app sends today. Since 01/11/2026 a free
+  family is held to `calendar_months_free` months (6), so the test's day moved from ~23 to
+  ~3–4 months ahead (`DAY_MIN`); the fixture family is on the free plan.
 - **`storage`:** written as a shape and **skipped with its reason** until a tenant with a
   bucket (Desmalha) has fixtures — which card 03.3.2 brought (below).
 

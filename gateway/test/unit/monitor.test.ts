@@ -7,12 +7,12 @@ import { describe, expect, it } from 'vitest';
 /**
  * The monitor gate (card 08.1).
  *
- * The monitor runs every 5 minutes in a PUBLIC repository, so its log is public 288 times a
- * day, and the things that make it wrong are all quiet: a production host added to
- * `wrangler.toml` that nobody adds here is a tenant nobody watches; a debugging `cat` of the
- * body or an `echo` of the key leaks on the next run; a second issue per failure turns an
- * incident into 288 e-mails. None of that fails a run. So the workflow is read here as data,
- * like the backup workflows in backup.test.ts.
+ * The monitor runs in a PUBLIC repository, so its log is public, and the things that make it
+ * wrong are all quiet: a production host added to `wrangler.toml` that nobody adds here is a
+ * tenant nobody watches; a debugging `cat` of the body or an `echo` of the key leaks on the
+ * next run; a second issue per failure turns an incident into an e-mail per run; a job that
+ * never ends spends the account's Actions minutes (04/11/2026). None of that fails a run. So
+ * the workflow is read here as data, like the backup workflows in backup.test.ts.
  */
 
 const REPO = resolve(__dirname, '../../..');
@@ -32,9 +32,9 @@ const production = Object.entries(wrangler.env)
   .map(([, block]) => block.vars);
 
 describe('monitor.yml — what it watches', () => {
-  it('runs every 5 minutes and by hand, never from a branch', () => {
+  it('runs once a day and by hand, never from a branch — the 5 minutes are the external service', () => {
     expect(Object.keys(workflow.on).sort()).toEqual(['schedule', 'workflow_dispatch']);
-    expect(workflow.on.schedule).toEqual([{ cron: '2-59/5 * * * *' }]);
+    expect(workflow.on.schedule).toEqual([{ cron: '41 7 * * *' }]);
   });
 
   it.each(production)(
@@ -85,8 +85,8 @@ describe('monitor.yml — what reaches the public log', () => {
     for (const step of job.steps) expect(step.uses ?? '').not.toMatch(/upload-artifact/);
   });
 
-  it('asks for nothing beyond reading the repo, writing issues and dispatching itself', () => {
-    expect(workflow.permissions).toEqual({ actions: 'write', contents: 'read', issues: 'write' });
+  it('asks for nothing beyond reading the repo and writing issues — it cannot dispatch itself', () => {
+    expect(workflow.permissions).toEqual({ contents: 'read', issues: 'write' });
   });
 });
 
@@ -96,46 +96,35 @@ describe('monitor.yml — one incident, one issue', () => {
     expect(probeScript).toMatch(/if \[ -n "\$open" \]; then\s*\n\s*gh issue comment/);
   });
 
-  it('comments again only when what fails changes — a long outage is one e-mail', () => {
-    expect(probeScript).toContain('[ "$state" != "$last_state" ] && report');
+  it('reports when a probe failed and ends red, so the run history stays the evidence', () => {
+    expect(probeScript).toMatch(/if \[ -s failures\.txt \]; then\s*\n\s*report\s*\n\s*exit 1/);
   });
 
   it('closes it on the first all-green pass', () => {
     expect(probeScript).toMatch(/gh issue close/);
-    expect(probeScript).toContain('[ -n "$last_state" ] && close_if_open');
+    expect(probeScript.trimEnd().endsWith('close_if_open')).toBe(true);
   });
 });
 
-describe('monitor.yml — the 5 minutes are a loop, not the cron', () => {
-  // GitHub's scheduler fired the 5-minute cron once in ~11 h on this repository
-  // (28/09/2026): the cadence has to live inside the job.
-  it('loops for most of a job on schedule, and makes one pass on dispatch', () => {
-    expect(job.env.LOOP_MINUTES).toBe(
-      "${{ (github.event_name == 'schedule' || inputs.loop) && 345 || 0 }}",
-    );
+describe('monitor.yml — one pass, never a loop (04/11/2026)', () => {
+  // From 28/09 to 04/11/2026 the job looped for 5 h 45 and dispatched its successor: one job
+  // always running, ~1,760 billed minutes a day. With the repositories private it spent the
+  // account's 2,000 monthly minutes in a day and a half and blocked the CI of every product.
+  it('makes one pass and ends — no sleep, no loop', () => {
+    // `while read` over failures.txt is fine; an endless `while :` / `while true` is not.
+    expect(probeScript).not.toMatch(/while\s+(:|true)\b|\bsleep \$|LOOP_MINUTES|deadline/);
+    expect(job.env).not.toHaveProperty('LOOP_MINUTES');
     const timeout = (workflow.jobs.probe as { 'timeout-minutes': number })['timeout-minutes'];
-    // The loop can overrun its deadline by one sleep (< 5 min) and one pass.
-    expect(345 + 10).toBeLessThanOrEqual(timeout);
-    expect(timeout).toBeLessThanOrEqual(360);
-    expect(probeScript).toContain('sleep $(( 300 - (now % 300) ))');
+    // Four probes, two tries of at most 15 s plus the 10 s pause each: about 3 minutes.
+    expect(timeout).toBeLessThanOrEqual(5);
   });
 
-  it('queues the next run behind the running one instead of cancelling it', () => {
+  it('never dispatches a run of itself', () => {
+    expect(text).not.toMatch(/gh workflow run|workflow_run|repository_dispatch/);
+    expect(workflow.on.workflow_dispatch.inputs).not.toHaveProperty('loop');
+  });
+
+  it('runs one at a time, never cancelling a pass that is reporting', () => {
     expect(workflow.concurrency).toEqual({ group: 'monitor', 'cancel-in-progress': false });
-  });
-
-  it('ends red when any pass failed, so the run history stays the evidence', () => {
-    expect(probeScript.trimEnd().endsWith('exit $any_red')).toBe(true);
-  });
-
-  // The scheduler then went 6 h 30 min without firing at all (28/09/2026).
-  it('chains itself: a looping run dispatches the next looping run before it ends', () => {
-    expect(workflow.on.workflow_dispatch.inputs.loop).toMatchObject({
-      type: 'boolean',
-      default: false,
-    });
-    expect(probeScript).toMatch(
-      /if \[ "\$LOOP_MINUTES" -gt 0 \]; then\s*\n\s*gh workflow run monitor\.yml --repo "\$GITHUB_REPOSITORY" --ref main -f loop=true/,
-    );
   });
 });

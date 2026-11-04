@@ -18,7 +18,7 @@ import { call, signIn, WAYS, type Way } from './http';
  *     .subscribe(...)
  *
  * and the change that fires it is `insertDay` (:244, `CareSchedule.toInsertJson()`), made
- * by user A in her own family on a day ~23 months ahead, deleted at the end (and before, in
+ * by user A in her own family on a day ~3–4 months ahead, deleted at the end (and before, in
  * case an earlier run died between the two). Phoenix protocol vsn 1.0.0, as realtime_client
  * speaks it; heartbeat every 25 s in the app, once here.
  */
@@ -30,8 +30,14 @@ const why = !CONFIGURED
   : !HAS_USERS
     ? `tenant "${TENANT}" has no fixture users`
     : `the channel is Entrelares' adapter's; tenant "${TENANT}" brings its own when it joins the matrix`;
-/** The test's days: ~23 months ahead, inside the app's 24-month window, far from real use. */
-const DAY_MIN = 690;
+/**
+ * The test's days: ~3–4 months ahead, inside the FREE plan's window — the fixture family is
+ * not premium. Since 01/11/2026 the target refuses a day beyond `calendar_months_free`
+ * (6 today, an app_settings key the owner can lower) with 23514 "O plano gratuito permite
+ * planejar até 6 meses à frente"; the old ~23 months (the premium 24-month window) went red
+ * every night. The fixture family has no real use, so near days collide with nothing.
+ */
+const DAY_MIN = 100;
 const DAY_SPAN = 20;
 const dayIn = (days: number) => new Date(Date.now() + days * 86_400_000).toISOString().slice(0, 10);
 
@@ -148,8 +154,9 @@ describe.skipIf(skipAll || !ENTRELARES)(
 
           // supabase_custody_data_source.dart:244 — insert(day.toInsertJson())
           // The app's own rule (captured 24/09/2026, 23514): "O calendário permite agendar
-          // no máximo 24 meses à frente." So a day ~23 months ahead, far from real use, and
-          // another one if the family already has that day (one day, one row).
+          // no máximo 24 meses à frente" — and, for a free family (01/11/2026), at most
+          // `calendar_months_free` months. So a day ~3–4 months ahead (DAY_MIN), and another
+          // one if the family already has that day (one day, one row).
           let inserted = { status: 0, text: '' };
           for (let attempt = 0; attempt < 5 && inserted.status !== 201; attempt++) {
             const when = dayIn(DAY_MIN + Math.floor(Math.random() * DAY_SPAN));
