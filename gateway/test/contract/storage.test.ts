@@ -163,9 +163,9 @@ describe.skipIf(skipAll)(`group 11 — storage${skipAll ? ` — skipped: ${why}`
 
     // The listing is the Storage's own record and answers at once. The download does not: the
     // target's CDN keeps serving a deleted object until its cache is invalidated — measured
-    // 04/11/2026, run 41857884307: gone after ~1 s through the gateway, still 200 for ~57 s
-    // directly (the nightly went red on every run that re-created the same path). So the
-    // download is polled, up to 90 s, and the log says how long the object stayed readable.
+    // 04/11/2026 (runs 41857884307, 41858316557): still 200 for ~56–57 s, through the gateway
+    // and directly alike (the nightly went red on every run that re-created the same path).
+    // So the download is polled, up to 90 s, and the log says how long it stayed readable.
     it('A removes it, and it is gone', async () => {
       const res = await removeObjects(way, a(way), [own()]);
       expect(res.status).toBe(200);
